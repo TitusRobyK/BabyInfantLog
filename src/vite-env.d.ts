@@ -18,3 +18,7 @@ interface Window {
   }
   onTurnstileLoaded?: () => void
 }
+
+interface Navigator {
+  readonly standalone?: boolean
+}

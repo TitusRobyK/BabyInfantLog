@@ -338,6 +338,14 @@ The app must not silently discard an event because of poor connectivity.
 
 ## 10. Feedback and error states
 
+### Install nudge
+
+- Only authenticated mobile users who are not already running the installed app are eligible.
+- Wait 20 seconds on the Log screen before showing a compact, non-modal banner above bottom navigation.
+- Android uses the browser's native install prompt after the parent selects **Add to Home Screen**.
+- iPhone and iPad show **Tap Share, then Add to Home Screen** because iOS does not expose the same programmable prompt.
+- **Not now** suppresses the nudge for 14 days on that browser.
+
 | State | UI treatment | Parent action |
 |---|---|---|
 | Saved | Activity has no warning; no persistent success label | None |

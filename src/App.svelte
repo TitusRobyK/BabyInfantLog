@@ -4,6 +4,7 @@
   import AuthScreen from './components/AuthScreen.svelte'
   import EventEditor from './components/EventEditor.svelte'
   import HistoryScreen from './components/HistoryScreen.svelte'
+  import InstallNudge from './components/InstallNudge.svelte'
   import LogScreen from './components/LogScreen.svelte'
   import Onboarding from './components/Onboarding.svelte'
   import ResetPassword from './components/ResetPassword.svelte'
@@ -378,6 +379,8 @@
       <button class:active={route === 'history'} type="button" on:click={() => (route = 'history')}>History</button>
       <button class:active={route === 'trends'} type="button" on:click={() => (route = 'trends')}>Trends</button>
     </nav>
+
+    {#if route === 'log'}<InstallNudge />{/if}
   </div>
 {/if}
 

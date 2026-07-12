@@ -11,6 +11,7 @@ export default defineConfig({
       manifest: {
         name: 'Baby Infant Log',
         short_name: 'Baby Log',
+        id: '/',
         description: 'A fast, shared infant care log for parents.',
         theme_color: '#FAFAF7',
         background_color: '#FAFAF7',
