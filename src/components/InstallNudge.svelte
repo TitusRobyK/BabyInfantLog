@@ -91,7 +91,7 @@
     </div>
     <div class="install-nudge-actions">
       {#if nativeInstallAvailable}
-        <button class="install-button" type="button" on:click={install}>Add Baby Log to your Home Screen for one-tap opening.</button>
+        <button class="install-button" type="button" on:click={install}>Add to Home Screen</button>
       {/if}
       <button class="text-button" type="button" on:click={dismiss}>Not now</button>
     </div>
