@@ -28,6 +28,7 @@
   let timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago'
   let invitedEmail = ''
   let code = ''
+  let normalizedFamilyCode = ''
   let preview: InvitePreview | null = null
   let generatedCode = ''
   let expiresAt = ''
@@ -37,6 +38,8 @@
   let busy = false
   let emailBusy = false
   let error = ''
+
+  $: normalizedFamilyCode = code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5)
 
   async function saveProfile() {
     const { error: profileError } = await supabase.from('parent_profiles').upsert({
@@ -117,7 +120,7 @@
     busy = true
     try {
       await saveProfile()
-      preview = await previewInvite(normalizedCode())
+      preview = await previewInvite(normalizedFamilyCode)
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'That code could not be used.'
     } finally {
@@ -129,17 +132,13 @@
     error = ''
     busy = true
     try {
-      await claimInvite(normalizedCode())
+      await claimInvite(normalizedFamilyCode)
       await finish()
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'The family could not be joined.'
     } finally {
       busy = false
     }
-  }
-
-  function normalizedCode() {
-    return code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5)
   }
 
   async function finish() {
@@ -247,7 +246,7 @@
         {/if}
 
         {#if error}<p class="field-error" role="alert">{error}</p>{/if}
-        <button class="primary" type="submit" disabled={busy || (mode === 'join' && !preview && normalizedCode().length !== 5)}>
+        <button class="primary" type="submit" disabled={busy || (mode === 'join' && !preview && normalizedFamilyCode.length !== 5)}>
           {busy ? 'Please wait…' : mode === 'create' ? 'Create family' : preview ? 'Join family' : 'Review family'}
         </button>
       </form>
