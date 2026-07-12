@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { User } from '@supabase/supabase-js'
   import { claimInvite, generateInvite, previewInvite, type InvitePreview } from '../lib/api'
+  import { clearOnboardingIntent, readOnboardingIntent } from '../lib/authIntent'
   import { supabase } from '../lib/supabase'
   import type { ParentProfile, ParentType } from '../lib/types'
 
@@ -9,8 +10,7 @@
   export let onComplete: () => Promise<void>
 
   type Mode = 'choose' | 'create' | 'join'
-  let mode = (localStorage.getItem('baby-log-onboarding-mode') as Mode | null) ?? 'choose'
-  if (!['create', 'join'].includes(mode)) mode = 'choose'
+  let mode: Mode = readOnboardingIntent() ?? 'choose'
 
   let displayName = profile?.display_name ?? ''
   let parentType: ParentType = profile?.parent_type ?? 'mother'
@@ -94,7 +94,7 @@
   }
 
   async function finish() {
-    localStorage.removeItem('baby-log-onboarding-mode')
+    clearOnboardingIntent()
     await onComplete()
   }
 

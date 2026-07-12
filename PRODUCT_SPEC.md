@@ -1,4 +1,4 @@
-# Baby Infant Log — Product and UX Specification
+# Baby Log — Product and UX Specification
 
 **Status:** Approved implementation baseline  
 **Implementation status:** MVP implementation created; external Supabase and Netlify provisioning remains  
@@ -29,7 +29,7 @@ The product is intentionally narrow. Speed, clarity, data safety, and reliable s
 
 ### 2.1 Accounts and family membership
 
-The first release uses standard email-and-password accounts. It does not hard-code or allowlist specific email addresses.
+The first release supports Google Sign-In and standard email-and-password accounts through Supabase Auth. It does not hard-code or allowlist specific email addresses.
 
 - **Parent A** creates an account, a parent profile, and the infant's family record.
 - The system generates a short-lived five-character alphanumeric family signup code.
@@ -340,11 +340,11 @@ The app must not silently discard an event because of poor connectivity.
 
 ### Install nudge
 
-- Only authenticated mobile users who are not already running the installed app are eligible.
-- Wait 20 seconds on the Log screen before showing a compact, non-modal banner above bottom navigation.
+- Mobile users who are not already running the installed app are eligible before or after login.
+- Wait 5 seconds before showing a compact, non-modal banner above bottom navigation; suppress it during loading and password recovery.
 - Android uses the browser's native install prompt after the parent selects **Add to Home Screen**.
 - iPhone and iPad show **Tap Share, then Add to Home Screen** because iOS does not expose the same programmable prompt.
-- **Not now** suppresses the nudge for 14 days on that browser.
+- **Not now** suppresses the nudge only for the current browser session.
 
 | State | UI treatment | Parent action |
 |---|---|---|
@@ -492,14 +492,14 @@ The core app must not imply that a notification was delivered unless the provide
 
 ## 14. Onboarding and household isolation
 
-### 14.1 Assessment of the email/password and code model
+### 14.1 Assessment of the authentication and code model
 
-This is a sound family-linking model and is easier to generalize beyond two hard-coded accounts. It is not inherently simpler operationally than Google sign-in because the app must now own email verification, password reset, SMTP delivery, password rules, and signup abuse protection.
+This is a sound family-linking model and is easier to generalize beyond two hard-coded accounts. Google Sign-In reduces password friction, while email/password remains available as a fallback and requires email verification, password reset, SMTP delivery, password rules, and signup abuse protection.
 
 The recommended version has two important safeguards:
 
 1. Parent A enters Parent B's email when generating the code, so the invitation is bound to that exact normalized email.
-2. Parent B must create and verify their own account before the code can be validated or claimed.
+2. Parent B must authenticate with their own verified Google or email/password account before the code can be validated or claimed.
 
 This means a copied, guessed, or mistyped code cannot link an unrelated verified account. The five-character code confirms possession of the invitation; it is not the only proof of identity.
 
@@ -513,20 +513,25 @@ The unauthenticated entry screen has three plain actions:
 
 The labels Parent A and Parent B describe onboarding order only. They do not create different long-term permissions.
 
+After selecting an entry action, the parent sees **Continue with Google** followed by an **or continue with email** divider and the email/password form. The Join journey tells Parent B to use the Google account that received the invitation.
+
 ### 14.3 Parent A — create a family
 
 The flow is intentionally divided into short screens with a visible progress label such as **Step 1 of 4**. Back preserves entered values, and closing the browser allows verified users to resume incomplete onboarding.
 
 #### Step 1 — Account
 
-Fields:
+Account options:
 
+- **Continue with Google**
 - Email
 - Password
 - Confirm password
 
 Behavior:
 
+- Preserve the selected Create journey across the Google redirect.
+- Treat the verified email returned by Google as the account email.
 - Normalize email for comparisons while preserving the entered address for display.
 - Provide one Show/Hide password control that applies predictably.
 - Allow paste and password-manager autofill.
@@ -571,7 +576,7 @@ Completion opens the Log screen. Until Parent B joins, Settings continues to sho
 
 #### Step 1 — Account
 
-Parent B enters Email, Password, and Confirm password, then verifies the email. If Parent B already has an account without a family, they log in instead of creating another account.
+Parent B continues with the invited Google account or enters Email, Password, and Confirm password, then verifies the email. If Parent B already has an account without a family, they log in instead of creating another account. The selected Join journey is preserved across the Google redirect.
 
 #### Step 2 — Parent profile
 
@@ -659,7 +664,9 @@ Security recommendation:
 
 ### 15.1 Authentication
 
-- Use Supabase Auth email-and-password signup and login.
+- Use Supabase Auth Google OAuth and email-and-password signup and login.
+- Store the Google client secret only in Supabase; never expose it through Netlify, source code, or a `VITE_` variable.
+- Preserve Create or Join intent across OAuth redirects and clear stale intent for a normal login.
 - Require email confirmation before family creation or invitation redemption.
 - Configure a production SMTP provider for confirmation and password-reset messages; Supabase's built-in sender is suitable only for initial testing.
 - Use a minimum password length of 12 characters, allow long passphrases and password-manager values, and do not block paste.
@@ -834,13 +841,13 @@ Routine event writes should not pass through a Netlify Function unless later req
 
 ```text
 Parent A signup
-  → create email/password account
-  → verify email
+  → authenticate with Google or create an email/password account
+  → obtain a verified account email
   → create profile + household + infant transactionally
   → server generates email-bound, expiring invitation code
 
 Parent B signup
-  → create and verify separate account
+  → authenticate with a separate verified Google or email/password account
   → enter code through rate-limited server function
   → preview family
   → transactional claim consumes code + creates membership
@@ -988,7 +995,7 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 
 ### 23.4 Shared use
 
-- Parent A and Parent B can sign in independently with verified email-and-password accounts.
+- Parent A and Parent B can sign in independently with verified Google or email/password accounts.
 - A saved event from one device appears on the other open device without refresh.
 - Events from both parents remain attributed and ordered by occurrence time.
 - Concurrent legitimate events are retained.
@@ -1052,7 +1059,7 @@ Test on the actual devices used by both parents, not only emulators:
 - One device on cellular and one on Wi-Fi
 - Airplane-mode log followed by reconnection
 - App backgrounded before and after a queued event
-- Email/password session restoration after multiple days
+- Google and email/password session restoration after multiple days
 - Email verification and password reset opened from the device's mail app
 - Daylight-saving transition calculations using automated clock fixtures
 
@@ -1062,7 +1069,7 @@ Test on the actual devices used by both parents, not only emulators:
 
 - Initialize Svelte/Vite/TypeScript and Netlify configuration
 - Create Supabase local configuration and versioned migrations
-- Configure email/password Auth, confirmation/reset redirects, CAPTCHA, password rules, and production SMTP
+- Configure Google OAuth plus email/password Auth, confirmation/reset redirects, CAPTCHA, password rules, and production SMTP
 - Create schema, invitation digest/claim functions, constraints, and RLS policies
 - Add automated cross-household security tests before UI work
 

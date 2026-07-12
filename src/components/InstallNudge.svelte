@@ -2,9 +2,8 @@
   import { onMount } from 'svelte'
   import { hasNativeInstallPrompt, showNativeInstallPrompt, subscribeToInstallPrompt } from '../lib/pwaInstall'
 
-  const dismissalKey = 'baby-log-install-dismissed-at'
-  const dismissalDuration = 14 * 24 * 60 * 60_000
-  const displayDelay = 20_000
+  const sessionDismissalKey = 'baby-log-install-dismissed-this-session'
+  const displayDelay = 5_000
 
   let visible = false
   let ios = false
@@ -12,7 +11,7 @@
   let timer: ReturnType<typeof setTimeout> | null = null
 
   onMount(() => {
-    if (isStandalone() || wasRecentlyDismissed()) return
+    if (isStandalone() || wasDismissedThisSession()) return
 
     ios = isIosDevice()
     const android = /Android/i.test(navigator.userAgent)
@@ -47,13 +46,18 @@
   }
 
   function isIosDevice() {
-    return /iPad|iPhone|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    const explicitIos = /iPad|iPhone|iPod/i.test(navigator.userAgent)
+    const modernIpad = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+    const touchSafari = /Safari/i.test(navigator.userAgent)
+      && !/Chrome|CriOS|FxiOS|EdgiOS|OPiOS/i.test(navigator.userAgent)
+      && navigator.maxTouchPoints > 0
+      && window.matchMedia('(max-width: 820px)').matches
+    return explicitIos || modernIpad || touchSafari
   }
 
-  function wasRecentlyDismissed() {
+  function wasDismissedThisSession() {
     try {
-      const dismissedAt = Number(localStorage.getItem(dismissalKey) ?? 0)
-      return dismissedAt > 0 && Date.now() - dismissedAt < dismissalDuration
+      return sessionStorage.getItem(sessionDismissalKey) === '1'
     } catch {
       return false
     }
@@ -61,7 +65,7 @@
 
   function dismiss() {
     try {
-      localStorage.setItem(dismissalKey, String(Date.now()))
+      sessionStorage.setItem(sessionDismissalKey, '1')
     } catch {
       // The nudge can still be dismissed for this page when storage is unavailable.
     }
@@ -87,7 +91,7 @@
     </div>
     <div class="install-nudge-actions">
       {#if nativeInstallAvailable}
-        <button class="install-button" type="button" on:click={install}>Add to Home Screen</button>
+        <button class="install-button" type="button" on:click={install}>Add Baby Log to your Home Screen for one-tap opening.</button>
       {/if}
       <button class="text-button" type="button" on:click={dismiss}>Not now</button>
     </div>

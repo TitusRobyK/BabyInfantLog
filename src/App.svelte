@@ -380,8 +380,11 @@
       <button class:active={route === 'trends'} type="button" on:click={() => (route = 'trends')}>Trends</button>
     </nav>
 
-    {#if route === 'log'}<InstallNudge />{/if}
   </div>
+{/if}
+
+{#if isConfigured && !loading && !resetPasswordMode}
+  <InstallNudge />
 {/if}
 
 {#if editingEvent && context.profile}

@@ -47,6 +47,13 @@ input, select { width: 100%; min-height: 48px; padding: 0.65rem 0.75rem; border:
 .auth-shell { display: grid; min-height: 100dvh; place-items: center; padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom)); }
 .auth-panel { width: min(100%, 440px); }
 .auth-panel.wide { width: min(100%, 560px); }
+.oauth-method { display: grid; gap: 0.75rem; margin-bottom: 1rem; }
+.oauth-guidance { margin: 0; color: rgba(22, 22, 22, 0.72); font-size: 0.9rem; }
+.google-button { display: flex; width: 100%; align-items: center; justify-content: center; gap: 0.65rem; font-weight: 700; }
+.google-button svg { width: 18px; height: 18px; flex: 0 0 18px; }
+.auth-divider { display: flex; align-items: center; gap: 0.75rem; color: rgba(22, 22, 22, 0.62); font-size: 0.82rem; }
+.auth-divider::before, .auth-divider::after { height: 1px; flex: 1; background: rgba(22, 22, 22, 0.22); content: ""; }
+.auth-divider span { white-space: nowrap; }
 .turnstile-wrap { min-height: 65px; }
 .invite-code { display: block; margin: 1.25rem 0; font-size: clamp(2.5rem, 15vw, 4.5rem); font-weight: 800; letter-spacing: 0.14em; }
 .invite-code.small-code { font-size: 2.2rem; }

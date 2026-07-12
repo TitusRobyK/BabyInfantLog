@@ -1,6 +1,6 @@
 # Baby Infant Log
 
-A minimal, mobile-first shared infant care log for two parents. The app supports email/password accounts, secure family linking, one-tap care events, optional Feed volume, Sleep interruptions, Sleep and Pump sessions, offline retry, shared history, trends, and an 8 PM daily brief.
+A minimal, mobile-first shared infant care log for two parents. The app supports Google or email/password accounts, secure family linking, one-tap care events, optional Feed volume, Sleep interruptions, Sleep and Pump sessions, offline retry, shared history, trends, and an 8 PM daily brief.
 
 ## Stack
 
@@ -25,7 +25,7 @@ A minimal, mobile-first shared infant care log for two parents. The app supports
    npm run dev
    ```
 
-For the complete Supabase, Netlify, Auth, SMTP, CAPTCHA, and production verification procedure, see [DEPLOYMENT.md](./DEPLOYMENT.md).
+For the complete Supabase, Netlify, Auth, SMTP, CAPTCHA, and production verification procedure, see [DEPLOYMENT.md](./DEPLOYMENT.md). For Google OAuth setup, use [GOOGLE_AUTH.md](./GOOGLE_AUTH.md).
 
 ## Reset a disposable test database
 
@@ -102,6 +102,7 @@ npm run verify
 - `supabase/scripts/` — explicitly invoked database maintenance scripts
 - `public/` — PWA/static assets
 - `PRODUCT_SPEC.md` — product, UX, security, and acceptance specification
+- `GOOGLE_AUTH.md` — Google Auth Platform and Supabase OAuth setup
 
 ## Security boundary
 

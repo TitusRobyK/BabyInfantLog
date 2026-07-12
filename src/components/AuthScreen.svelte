@@ -1,5 +1,6 @@
 <script lang="ts">
   import Turnstile from './Turnstile.svelte'
+  import { saveOnboardingIntent } from '../lib/authIntent'
   import { supabase } from '../lib/supabase'
 
   type Mode = 'landing' | 'login' | 'create' | 'join' | 'forgot' | 'check-email'
@@ -10,6 +11,7 @@
   let confirmPassword = ''
   let showPassword = false
   let error = ''
+  let oauthError = ''
   let notice = ''
   let busy = false
   let captchaToken = ''
@@ -17,6 +19,7 @@
 
   function resetMessages() {
     error = ''
+    oauthError = ''
     notice = ''
   }
 
@@ -31,6 +34,23 @@
     const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     busy = false
     if (authError) error = 'Email or password is incorrect, or the email is not verified.'
+  }
+
+  async function continueWithGoogle() {
+    if (mode !== 'login' && mode !== 'create' && mode !== 'join') return
+
+    resetMessages()
+    saveOnboardingIntent(mode === 'login' ? null : mode)
+    busy = true
+    const { error: authError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    })
+
+    if (authError) {
+      busy = false
+      oauthError = 'Google sign-in could not start. Try again or continue with email.'
+    }
   }
 
   async function signup(intent: 'create' | 'join') {
@@ -49,7 +69,7 @@
     }
 
     busy = true
-    localStorage.setItem('baby-log-onboarding-mode', intent)
+    saveOnboardingIntent(intent)
     const { data, error: authError } = await supabase.auth.signUp({
       email: email.trim(),
       password,
@@ -91,10 +111,10 @@
 
 <main class="auth-shell">
   <section class="auth-panel" aria-labelledby="auth-title">
-    <h1 id="auth-title">Baby Infant Log</h1>
+    <h1 id="auth-title">Baby Log</h1>
 
     {#if mode === 'landing'}
-      <p class="lede">A fast, shared log for two parents.</p>
+      <p class="lede">Keep up with your baby's day, together.</p>
       <div class="stack">
         <button class="primary" type="button" on:click={() => choose('login')}>Log in</button>
         <button type="button" on:click={() => choose('create')}>Create a family — Parent A</button>
@@ -111,6 +131,25 @@
         {mode === 'create' ? 'Create a family' : mode === 'join' ? 'Join a family' : mode === 'forgot' ? 'Account recovery' : 'Welcome back'}
       </p>
       <h2>{mode === 'forgot' ? 'Reset password' : mode === 'login' ? 'Log in' : 'Create account'}</h2>
+
+      {#if mode === 'login' || mode === 'create' || mode === 'join'}
+        <div class="oauth-method">
+          {#if mode === 'join'}
+            <p class="oauth-guidance">Use the Google account that received the family invitation.</p>
+          {/if}
+          <button class="google-button" type="button" on:click={continueWithGoogle} disabled={busy}>
+            <svg viewBox="0 0 18 18" aria-hidden="true">
+              <path fill="#4285f4" d="M17.64 9.21c0-.64-.06-1.25-.16-1.85H9v3.48h4.84a4.14 4.14 0 0 1-1.79 2.72v2.26h2.91c1.7-1.57 2.68-3.88 2.68-6.61Z" />
+              <path fill="#34a853" d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.91-2.26c-.81.54-1.84.86-3.05.86-2.34 0-4.33-1.58-5.04-3.71H.96v2.33A9 9 0 0 0 9 18Z" />
+              <path fill="#fbbc05" d="M3.96 10.71A5.42 5.42 0 0 1 3.68 9c0-.59.1-1.17.28-1.71V4.96h-3A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.04l3-2.33Z" />
+              <path fill="#ea4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A8.65 8.65 0 0 0 9 0 9 9 0 0 0 .96 4.96l3 2.33C4.67 5.17 6.66 3.58 9 3.58Z" />
+            </svg>
+            {busy ? 'Opening Google…' : 'Continue with Google'}
+          </button>
+          {#if oauthError}<p class="field-error" role="alert">{oauthError}</p>{/if}
+          <div class="auth-divider" aria-hidden="true"><span>or continue with email</span></div>
+        </div>
+      {/if}
 
       <form on:submit|preventDefault={submitAuth}>
         <label>

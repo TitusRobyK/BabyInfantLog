@@ -44,6 +44,7 @@ The production output is generated in `dist/`.
    - Require email confirmation
    - Enable secure password changes
    - Set minimum password length to 12
+   - For Google Sign-In, complete [GOOGLE_AUTH.md](./GOOGLE_AUTH.md), then enable the Google provider with its client ID and secret
 5. In **Authentication → URL Configuration**, initially set:
    - Site URL: your temporary Netlify production URL, added after the first deploy
    - Redirect URLs:
