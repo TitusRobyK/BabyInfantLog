@@ -222,7 +222,7 @@ begin
         v_at := v_day_start + make_interval(mins => case when v_i = 1 then 420 else 1140 end);
         v_end_at := v_at + make_interval(mins => 18 + ((v_day_index + v_i) % 9));
         if v_end_at <= v_cutoff then
-          v_amount := 65 + ((v_day_index * 7 + v_i * 13) % 46);
+          v_amount := 25 + ((v_day_index * 7 + v_i * 13) % 36);
           insert into public.events (
             id, household_id, child_id, created_by, subject_parent_id, event_type,
             occurred_at, ended_at, client_timezone_offset_minutes, details

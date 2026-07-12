@@ -114,7 +114,7 @@
     {#if profile.show_pump_action}
       <button
         class:active-action={activePump}
-        class="action-button pump-action"
+        class="action-button"
         type="button"
         disabled={busySession}
         aria-pressed={Boolean(activePump)}

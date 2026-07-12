@@ -205,8 +205,13 @@
       pendingCount = user ? (await pendingForUser(user.id)).length : 0
       if (online) await loadHouseholdData()
       if (desiredState === 'end') {
-        const latest = events.find((event) => event.event_type === type)
-        showToast(`${label(type)} saved`, latest ? 'Details' : undefined, latest ? () => (editingEvent = latest) : undefined)
+        const completed = result.event ?? events.find((event) => event.event_type === type && Boolean(event.ended_at))
+        if (type === 'pump' && completed && completed.sync_status !== 'offline') {
+          toast = null
+          editingEvent = completed
+        } else {
+          showToast(`${label(type)} saved`, completed ? 'Details' : undefined, completed ? () => (editingEvent = completed) : undefined)
+        }
       } else if (result.action === 'existing') {
         showToast(`${label(type)} was already active`)
       }
@@ -276,8 +281,12 @@
     showToast('Event removed')
   }
 
-  async function saveEditedEvent(event: CareEvent, occurredAt: string, details: EventDetails) {
-    await updateEvent(event.id, { occurred_at: occurredAt, details })
+  async function saveEditedEvent(event: CareEvent, occurredAt: string, details: EventDetails, endedAt?: string | null) {
+    await updateEvent(event.id, {
+      occurred_at: occurredAt,
+      details,
+      ...(event.event_type === 'pump' ? { ended_at: endedAt ?? null } : {}),
+    })
     await loadHouseholdData()
     showToast('Event updated')
   }
@@ -347,7 +356,14 @@
   <Onboarding {user} profile={context.profile} onComplete={loadApplication} />
 {:else}
   <div class="app-shell">
-    <button class="settings-link" class:active={route === 'settings'} type="button" on:click={() => (route = 'settings')}>Settings</button>
+    <button
+      class="settings-link"
+      type="button"
+      aria-label={route === 'settings' ? 'Back to Baby Log' : 'Open settings'}
+      on:click={() => (route = route === 'settings' ? 'log' : 'settings')}
+    >
+      {route === 'settings' ? 'Back to log' : 'Settings'}
+    </button>
 
     {#if error}<p class="global-error" role="alert">{error}</p>{/if}
     {#if route === 'log'}

@@ -57,7 +57,13 @@
     <p>{context.profile?.display_name} · {context.profile?.parent_type.replace('_', ' / ')}</p>
     <form class="settings-form" on:submit|preventDefault={savePreferences}>
       <label class="check-row"><input bind:checked={showPump} type="checkbox" /> Show Pump action</label>
-      <label>Volume unit <select bind:value={unit}><option value="ml">Milliliters</option><option value="fl_oz">Fluid ounces</option></select></label>
+      <fieldset class="unit-choice">
+        <legend>Volume unit</legend>
+        <div class="unit-segmented">
+          <label><input type="radio" name="preferred-volume-unit" bind:group={unit} value="ml" /><span>Milliliters</span></label>
+          <label><input type="radio" name="preferred-volume-unit" bind:group={unit} value="fl_oz" /><span>Fluid ounces</span></label>
+        </div>
+      </fieldset>
       <button class="settings-save" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save preferences'}</button>
     </form>
   </section>
@@ -88,5 +94,5 @@
   </section>
 
   {#if error}<p class="field-error" role="alert">{error}</p>{/if}
-  <button class="danger" type="button" on:click={onSignOut}>Log out</button>
+  <button class="danger logout-button" type="button" on:click={onSignOut}>Log out</button>
 </section>

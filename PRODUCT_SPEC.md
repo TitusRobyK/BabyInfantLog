@@ -5,7 +5,7 @@
 **Primary users:** Two parents using iOS Safari and Android Chrome  
 **Hosting target:** Netlify  
 **Data and authentication target:** Supabase  
-**Last updated:** July 11, 2026
+**Last updated:** July 12, 2026
 
 ## 1. Product definition
 
@@ -99,9 +99,11 @@ The app has three persistent primary destinations:
 - **History:** chronological event list with edit, delete, and date navigation
 - **Trends:** action graphs, Day/Week/Month filters, and daily briefs
 
-Settings are opened from a small text or gear control in the top bar rather than occupying a fourth bottom-navigation item.
+Settings are opened from a small text control in the top bar rather than occupying a fourth bottom-navigation item. The control scrolls with the page instead of remaining sticky. While Settings is open, it changes to **Back to log** so the return destination is explicit.
 
 The bottom navigation remains fixed above the device safe area. Labels are always visible; icons are not used without text.
+
+All dropdown controls use the same clearly sized downward chevron with comfortable spacing from the right edge. Volume units are a two-option segmented radio control because both choices can remain visible without opening a menu.
 
 ## 6. Primary screen specification
 
@@ -137,7 +139,7 @@ This is a structural wireframe, not a visual style recommendation.
 
 - Two columns in portrait mode and three columns only when width comfortably allows it.
 - The six shared actions appear without scrolling on common phone sizes whenever practical.
-- Pump appears as a full-width seventh action below the shared grid for a Mother profile by default. Its visibility is a parent preference and remains stable after onboarding.
+- Pump appears as a seventh action using the same width, height, and shape as every other action card. Its visibility is a parent preference and remains stable after onboarding.
 - Each button is at least 64 CSS pixels high with at least 12 pixels between targets.
 - Button order never changes automatically. Stable placement prevents tired users from tapping the wrong action.
 - Each action uses a simple line icon plus a visible text label.
@@ -155,7 +157,7 @@ Recommended fixed order:
 | Middle right | Burp | Naturally adjacent to Feed |
 | Bottom left | Sleep / Wake | Stateful action with a changing label |
 | Bottom right | Diaper check | Related to but distinct from Poop/Pee |
-| Full-width personalized row | Pump / End pump | Visible by default for Mother; stateful and visually separate from infant actions |
+| Personalized action card | Pump / End pump | Visible by default for Mother; stateful but visually consistent with the shared action cards |
 
 ### 6.3 Standard one-tap event behavior
 
@@ -221,7 +223,7 @@ Optional post-log details:
 - Milk type: breast milk, formula, or mixed
 - Amount consumed in milliliters
 
-The Feed timestamp is saved on the first tap before its optional details sheet opens. Closing the sheet or choosing **Save without amount** retains the Feed. No amount is interpreted as unknown, not zero.
+The optional amount uses a touch-friendly 0–350 ml slider with one-milliliter steps and a live value label. The zero position is labelled **Not recorded**. The Feed timestamp is saved on the first tap before its optional details sheet opens. Closing the sheet or choosing **Save without amount** retains the Feed. No amount is interpreted as unknown, not zero.
 
 ### 7.4 Burp
 
@@ -273,21 +275,26 @@ Pump is a stateful, parent-specific CTA shown by default on the Mother profile:
 - Tapping it starts a Pump session using the current client timestamp.
 - While active, it reads **End pump · 12m** and uses the Attention state.
 - Tapping End pump closes the session at the current client timestamp and immediately saves the duration.
-- The success message reads **“Pump saved · 18m”** with **Undo** and **Add amount** actions.
+- After an online save, the Pump details sheet opens automatically; the parent does not need to find the event and open Details separately. An offline completion defers editable details until the session synchronizes.
 - The other parent may view and correct Pump records, but the primary Pump CTA is personalized to the Mother profile.
 
 Optional post-log details:
 
 - Total amount
 - Unit: milliliters or fluid ounces, remembered as a parent preference
+- Start time and end time, prefilled from the session and editable when the parent needs to correct either timestamp
 - Left amount and right amount, where useful
 - Left, right, or both when only side is being recorded
 
 Rules:
 
 - Amount is never required to end and save a Pump session.
+- End time must remain later than start time.
+- Total amount uses a slider from 0–60 ml. When fluid ounces are selected, the same upper limit is shown as 2.03 fl oz and the current value is converted immediately.
+- The zero position is labelled **Not recorded**.
 - If left and right amounts are entered, total is derived automatically; the form does not ask for the same total twice.
 - Preserve the entered value and unit, and also store a canonical milliliter value for consistent aggregation and later unit switching.
+- Unit selection uses a two-option segmented radio control in both Settings and Pump details rather than a dropdown.
 - Missing amount is displayed as “Not recorded” and is never counted as zero.
 - Only one open Pump session may exist per pumping parent profile.
 - The session is associated with the family and infant for shared trends while retaining the pumping parent's profile ID.
@@ -377,7 +384,8 @@ Each row shows:
 Controls:
 
 - Today is the default.
-- Previous/next date buttons have full text or clear accessible names.
+- Previous and Next use full text with directional arrows, unboxed 44-pixel touch targets, and a date label on its own row at narrow mobile widths.
+- Next is disabled while Today is selected so the parent cannot accidentally browse into empty future dates.
 - Filter by action using a compact selector; “All” is the default.
 - Selecting a row opens Edit and Remove actions.
 - Empty state: **“No events logged for this day.”**
@@ -991,6 +999,7 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 - One tap starts Pump and changes the CTA to End pump.
 - One tap ends the session and saves its duration without requiring an amount.
 - Amount, unit, and side can be added after the session is already saved.
+- Pump amount uses the 0–60 ml slider or its converted 0–2.03 fl oz range.
 - Pump history and trends are visible to both parents, and a missing amount is never treated as zero.
 
 ### 23.4 Shared use

@@ -11,6 +11,7 @@
 
   let filter: 'all' | EventType = 'all'
   let selectedDate = localDateKey(new Date().toISOString(), timezone)
+  const today = localDateKey(new Date().toISOString(), timezone)
 
   $: filtered = events.filter(
     (event) =>
@@ -45,9 +46,9 @@
   </header>
 
   <div class="date-nav">
-    <button type="button" aria-label="Previous day" on:click={() => moveDate(-1)}>←</button>
-    <strong>{formatDate(`${selectedDate}T12:00:00`, timezone)}</strong>
-    <button type="button" aria-label="Next day" on:click={() => moveDate(1)}>→</button>
+    <button class="previous-day" type="button" aria-label="Previous day" on:click={() => moveDate(-1)}><span aria-hidden="true">←</span> Previous</button>
+    <strong>{selectedDate === today ? 'Today' : formatDate(`${selectedDate}T12:00:00`, timezone)}</strong>
+    <button class="next-day" type="button" aria-label="Next day" disabled={selectedDate >= today} on:click={() => moveDate(1)}>Next <span aria-hidden="true">→</span></button>
   </div>
 
   <label class="filter-label">Action

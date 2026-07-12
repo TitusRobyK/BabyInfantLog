@@ -171,7 +171,7 @@ export async function setSleepInterruptionState(
   return result
 }
 
-export async function updateEvent(id: string, values: { occurred_at?: string; details?: EventDetails }): Promise<void> {
+export async function updateEvent(id: string, values: { occurred_at?: string; ended_at?: string | null; details?: EventDetails }): Promise<void> {
   const { error } = await supabase.from('events').update(values).eq('id', id)
   if (error) throw error
 }
