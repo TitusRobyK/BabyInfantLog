@@ -31,13 +31,16 @@ The production output is generated in `dist/`.
    - Project URL
    - Publishable key (`sb_publishable_...`)
    - Service-role key; keep this secret and never put it in `.env` with a `VITE_` prefix
-3. Apply the checked-in database migration:
+3. Link the project, preview the checked-in database migrations, and apply them:
 
    ```bash
    npx supabase@latest login
    npx supabase@latest link --project-ref YOUR_PROJECT_REF
-   npx supabase@latest db push
+   npm run db:setup:dry-run
+   npm run db:setup
    ```
+
+   `db:setup` applies pending files from `supabase/migrations/` in filename order and records them in Supabase migration history. It does not execute anything under `supabase/scripts/`, so test seeds and destructive cleanup utilities remain explicit operations.
 
 4. In **Authentication → Providers → Email**:
    - Enable email/password signup
@@ -81,7 +84,17 @@ To test Netlify Functions locally, also set the non-browser variables in a local
 SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=REPLACE_ME
 INVITE_HMAC_SECRET=REPLACE_ME
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=YOUR_SMTP_USERNAME
+SMTP_PASSWORD=YOUR_SMTP_APP_PASSWORD
+EMAIL_FROM=Baby Log <YOUR_FROM_ADDRESS>
+EMAIL_REPLY_TO=YOUR_OPTIONAL_REPLY_ADDRESS
+PUBLIC_APP_URL=https://YOUR-PRODUCTION-DOMAIN
 ```
+
+Supabase Auth SMTP and application email are separate integrations. The Netlify Function cannot read SMTP credentials saved in the Supabase dashboard, so add the same Gmail or transactional-provider credentials to Netlify separately. Code generation remains available when SMTP is absent or temporarily unavailable; only the optional **Email invitation** CTA fails.
 
 Generate the HMAC secret with:
 
@@ -118,6 +131,14 @@ Netlify Dev normally serves the site on `http://localhost:8888` and routes `/api
    | `SUPABASE_URL` | Functions | No |
    | `SUPABASE_SERVICE_ROLE_KEY` | Functions | Yes |
    | `INVITE_HMAC_SECRET` | Functions | Yes |
+   | `SMTP_HOST` | Functions | No |
+   | `SMTP_PORT` | Functions | No |
+   | `SMTP_SECURE` | Functions | No |
+   | `SMTP_USER` | Functions | Yes |
+   | `SMTP_PASSWORD` | Functions | Yes |
+   | `EMAIL_FROM` | Functions | No |
+   | `EMAIL_REPLY_TO` | Functions | No |
+   | `PUBLIC_APP_URL` | Functions | No |
 
 5. Trigger a production deploy.
 
@@ -142,6 +163,7 @@ After Netlify assigns the production URL:
 3. Add `https://YOUR-SITE.netlify.app/**` to Redirect URLs.
 4. Update the Turnstile allowed hostname to the same production domain.
 5. Trigger a fresh Netlify deploy if any `VITE_` value changed.
+6. Set `PUBLIC_APP_URL` to the same production origin so Parent B receives the correct joining instructions.
 
 ## 7. Verify the deployed functions
 
@@ -162,6 +184,8 @@ Use two real email accounts and both target phones.
    - Create an account and verify the email
    - Create the parent profile and baby
    - Enter Parent B's exact email and generate the family code
+   - Email the invitation and confirm the message names Parent A using the saved display name
+   - Confirm the Email invitation CTA is disabled for 30 minutes while Copy and Share remain available
 2. On Parent B's device:
    - Create and verify a separate account using the invited email
    - Enter the code, confirm the baby, and join

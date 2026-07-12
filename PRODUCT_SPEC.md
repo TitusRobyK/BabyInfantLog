@@ -572,11 +572,12 @@ Fields and actions:
 
 - Parent B email — required to generate the recommended email-bound code; Parent A may choose **Invite later**
 - Generated five-character code
-- **Copy code**
+- Copy icon beside the code with a 44-pixel touch target and **Copy family code** accessible name
+- **Email invitation** — optional and initiated only when Parent A chooses it
 - **Share code** using the device share sheet when available
 - Expiration shown in plain language
 
-The share text contains the code and expiry only. It does not contain the baby's name, Parent A's password, or a database identifier.
+Code generation never sends email automatically. Email and Share use the same active code and do not rotate it. The email identifies the inviter using the authenticated parent's saved display name and contains numbered instructions to open Baby Log, choose **Join a family — Parent B**, authenticate with the invited email, enter the code, review the family, and select **Join family**. It does not contain the baby's name, either parent's password, care data, or a database identifier.
 
 Completion opens the Log screen. Until Parent B joins, Settings continues to show **Invite Parent B**.
 
@@ -644,6 +645,10 @@ Security rules:
 - Allow only one active code per household; rotating it immediately revokes the old code.
 - Regenerate on collision so the same active code is never issued to two households at once.
 - Parent A can revoke or regenerate it from Settings.
+- Parent A may email the active code only through a separate authenticated CTA. The server reads the recipient from the invite row and never accepts a replacement recipient during delivery.
+- The server reads Parent A's display name from the authenticated parent profile for the email subject and instructions; the browser cannot supply or override it.
+- A successful email delivery starts a server-enforced 30-minute cooldown for the household, including replacement codes. The Email invitation CTA shows the remaining time and disables itself until the server timestamp expires, while Copy and Share stay available.
+- Failed delivery does not start the 30-minute successful-send cooldown. Email attempts remain separately rate-limited, and delivery failure leaves the code valid and visible for Copy or Share.
 - Store only an HMAC/digest made with a server-held secret, not the raw code.
 - Validate and claim only through an authenticated server function; never expose the invitation table to the browser.
 - Rate-limit attempts by authenticated account and IP, with a recommended maximum of five failed attempts per 15 minutes followed by cooldown.
@@ -839,6 +844,7 @@ Supabase owns:
 Netlify Functions own:
 
 - Five-character invitation generation, digesting, rate-limited validation, and claim orchestration
+- Parent-controlled transactional invitation email delivery using the same active code
 - Scheduled 8 PM brief generation
 - Optional future email/push delivery
 - Any future server-only operation that requires the Supabase service-role key

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { generateInvite } from '../lib/api'
+  import InviteCodePanel from './InviteCodePanel.svelte'
+  import { emailInvite, generateInvite, InviteEmailCooldownError, type EmailDeliveryStatus } from '../lib/api'
   import { supabase } from '../lib/supabase'
   import type { AppContext, VolumeUnit } from '../lib/types'
 
@@ -9,43 +10,67 @@
   export let onSignOut: () => Promise<void>
 
   let invitedEmail = ''
+  let generatedEmail = ''
   let generatedCode = ''
   let expiresAt = ''
+  let cooldownUntil = ''
+  let deliveryStatus: EmailDeliveryStatus = 'not_sent'
   let showPump = context.profile?.show_pump_action ?? false
   let unit: VolumeUnit = context.profile?.volume_unit ?? 'ml'
   let busy = false
-  let error = ''
+  let emailBusy = false
+  let preferenceError = ''
+  let inviteError = ''
 
   $: canInvite = context.members.length < 2
 
   async function savePreferences() {
     if (!context.profile) return
+    preferenceError = ''
     busy = true
     const { error: updateError } = await supabase
       .from('parent_profiles')
       .update({ show_pump_action: showPump, volume_unit: unit })
       .eq('user_id', context.profile.user_id)
     busy = false
-    if (updateError) error = updateError.message
+    if (updateError) preferenceError = updateError.message
     else await onUpdated()
   }
 
   async function createInvite() {
-    error = ''
+    inviteError = ''
     busy = true
     try {
       const invite = await generateInvite(invitedEmail)
       generatedCode = invite.code
+      generatedEmail = invitedEmail.trim()
       expiresAt = invite.expiresAt
+      deliveryStatus = invite.emailDelivery.status
+      cooldownUntil = invite.emailDelivery.cooldownUntil ?? ''
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'The code could not be generated.'
+      inviteError = caught instanceof Error ? caught.message : 'The code could not be generated.'
     } finally {
       busy = false
     }
   }
 
-  async function copyCode() {
-    await navigator.clipboard.writeText(generatedCode)
+  async function sendInvitationEmail() {
+    inviteError = ''
+    emailBusy = true
+    try {
+      const result = await emailInvite(generatedCode)
+      deliveryStatus = result.emailDelivery.status
+      cooldownUntil = result.emailDelivery.cooldownUntil ?? ''
+    } catch (caught) {
+      if (caught instanceof InviteEmailCooldownError) {
+        deliveryStatus = 'sent'
+        cooldownUntil = caught.cooldownUntil
+      } else {
+        inviteError = caught instanceof Error ? caught.message : 'The email could not be sent.'
+      }
+    } finally {
+      emailBusy = false
+    }
   }
 </script>
 
@@ -64,6 +89,7 @@
           <label><input type="radio" name="preferred-volume-unit" bind:group={unit} value="fl_oz" /><span>Fluid ounces</span></label>
         </div>
       </fieldset>
+      {#if preferenceError}<p class="field-error" role="alert">{preferenceError}</p>{/if}
       <button class="settings-save" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save preferences'}</button>
     </form>
   </section>
@@ -79,11 +105,19 @@
       <form class="settings-form" on:submit|preventDefault={createInvite}>
         <label>Parent B email <input bind:value={invitedEmail} type="email" required /></label>
         <button type="submit" disabled={busy}>Generate family code</button>
+        {#if inviteError}<p class="field-error" role="alert">{inviteError}</p>{/if}
       </form>
       {#if generatedCode}
-        <output class="invite-code small-code">{generatedCode}</output>
-        <p>Expires {new Date(expiresAt).toLocaleString()}.</p>
-        <button type="button" on:click={copyCode}>Copy code</button>
+        <InviteCodePanel
+          code={generatedCode}
+          {expiresAt}
+          email={generatedEmail}
+          {deliveryStatus}
+          {cooldownUntil}
+          busy={emailBusy}
+          compact
+          onEmail={sendInvitationEmail}
+        />
       {/if}
     {/if}
   </section>
@@ -93,6 +127,5 @@
     <p>{pendingCount ? `${pendingCount} events waiting to sync.` : 'Everything is synced.'}</p>
   </section>
 
-  {#if error}<p class="field-error" role="alert">{error}</p>{/if}
   <button class="danger logout-button" type="button" on:click={onSignOut}>Log out</button>
 </section>

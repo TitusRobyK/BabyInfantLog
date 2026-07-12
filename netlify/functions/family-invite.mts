@@ -1,14 +1,25 @@
 import type { Config, Context } from '@netlify/functions'
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js'
 import { createHmac, randomInt } from 'node:crypto'
+import nodemailer from 'nodemailer'
+import { buildInviteEmail } from '../../src/lib/inviteEmail'
 
 const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 const genericInviteError = 'That code is invalid, expired, already used, or belongs to another email.'
+const emailCooldownMs = 30 * 60_000
 
 interface InviteBody {
-  action?: 'generate' | 'preview' | 'claim'
+  action?: 'generate' | 'send' | 'preview' | 'claim'
   email?: string
   code?: string
+}
+
+type AuthResult = { user: User | null; reason?: 'missing_header' | 'invalid_token' | 'missing_email' | 'email_unconfirmed' }
+
+interface EmailSendReservation {
+  allowed: boolean
+  reason: 'reserved' | 'cooldown' | 'send_in_progress' | 'attempt_limit' | 'invalid_invite'
+  cooldownUntil?: string
 }
 
 function env(name: string): string {
@@ -46,12 +57,26 @@ function newCode(): string {
   return Array.from({ length: 5 }, () => alphabet[randomInt(alphabet.length)]).join('')
 }
 
-async function authenticatedUser(client: SupabaseClient, request: Request): Promise<User | null> {
+function activeCooldown(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) && timestamp > Date.now() ? new Date(timestamp).toISOString() : undefined
+}
+
+async function householdCooldownUntil(client: SupabaseClient, householdId: string): Promise<string | undefined> {
+  const { data, error } = await client.rpc('invite_email_cooldown_until', { p_household_id: householdId })
+  if (error) throw error
+  return activeCooldown(data)
+}
+
+async function authenticatedUser(client: SupabaseClient, request: Request): Promise<AuthResult> {
   const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
-  if (!token) return null
+  if (!token) return { user: null, reason: 'missing_header' }
   const { data, error } = await client.auth.getUser(token)
-  if (error || !data.user?.email || !data.user.email_confirmed_at) return null
-  return data.user
+  if (error) return { user: null, reason: 'invalid_token' }
+  if (!data.user?.email) return { user: null, reason: 'missing_email' }
+  if (!data.user.email_confirmed_at) return { user: null, reason: 'email_unconfirmed' }
+  return { user: data.user }
 }
 
 function clientIp(request: Request, context: Context): string {
@@ -138,10 +163,117 @@ async function generate(client: SupabaseClient, user: User, body: InviteBody): P
       created_by: user.id,
       expires_at: expiresAt,
     })
-    if (!error) return json({ code, expiresAt })
+    if (!error) {
+      const cooldownUntil = await householdCooldownUntil(client, membership.household_id)
+      return json({ code, expiresAt, emailDelivery: { status: 'not_sent', cooldownUntil } })
+    }
     if (error.code !== '23505') throw error
   }
   return json({ error: 'A code could not be generated. Try again.' }, 503)
+}
+
+function publicAppUrl(): string {
+  const value = env('PUBLIC_APP_URL').replace(/\/+$/, '')
+  const url = new URL(value)
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Invalid PUBLIC_APP_URL')
+  return url.toString().replace(/\/+$/, '')
+}
+
+async function deliverInviteEmail(recipient: string, code: string, expiresAt: string, inviterName: string) {
+  const port = Number(env('SMTP_PORT'))
+  if (!Number.isInteger(port) || port <= 0) throw new Error('Invalid SMTP_PORT')
+
+  const transporter = nodemailer.createTransport({
+    host: env('SMTP_HOST'),
+    port,
+    secure: env('SMTP_SECURE').toLowerCase() === 'true',
+    auth: {
+      user: env('SMTP_USER'),
+      pass: env('SMTP_PASSWORD'),
+    },
+  })
+  const appUrl = publicAppUrl()
+  const content = buildInviteEmail(code, expiresAt, appUrl, inviterName)
+
+  await transporter.sendMail({
+    from: env('EMAIL_FROM'),
+    replyTo: process.env.EMAIL_REPLY_TO || undefined,
+    to: recipient,
+    ...content,
+  })
+}
+
+async function sendInvite(client: SupabaseClient, user: User, body: InviteBody): Promise<Response> {
+  const code = normalizeCode(body.code ?? '')
+  if (code.length !== 5) return json({ error: 'The family code is unavailable. Generate a new one.' }, 400)
+
+  const { data: membership } = await client
+    .from('household_members')
+    .select('household_id')
+    .eq('user_id', user.id)
+    .maybeSingle()
+  if (!membership) return json({ error: 'Create a family before sending an invitation.' }, 403)
+
+  const { data: invite, error } = await client
+    .from('household_invites')
+    .select('id, household_id, invited_email_normalized, expires_at')
+    .eq('household_id', membership.household_id)
+    .eq('created_by', user.id)
+    .eq('code_digest', digest(code))
+    .is('claimed_at', null)
+    .is('revoked_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .maybeSingle()
+  if (error) throw error
+  if (!invite) return json({ error: 'The family code is unavailable. Generate a new one.' }, 400)
+
+  const { data: inviter, error: inviterError } = await client
+    .from('parent_profiles')
+    .select('display_name')
+    .eq('user_id', user.id)
+    .single()
+  if (inviterError) throw inviterError
+  const inviterName = inviter.display_name?.trim()
+  if (!inviterName) return json({ error: 'Add your name to your parent profile before emailing an invitation.' }, 409)
+
+  const { data: reservationData, error: attemptError } = await client.rpc('reserve_invite_email_send', {
+    p_invite_id: invite.id,
+  })
+  if (attemptError) throw attemptError
+  const reservation = reservationData as EmailSendReservation | null
+  if (!reservation?.allowed) {
+    const cooldownUntil = reservation?.reason === 'cooldown' ? activeCooldown(reservation.cooldownUntil) : undefined
+    if (reservation?.reason === 'invalid_invite') {
+      return json({ error: 'The family code is unavailable. Generate a new one.' }, 400)
+    }
+    const errorMessage =
+      reservation?.reason === 'send_in_progress'
+        ? 'An invitation email is already being sent.'
+        : reservation?.reason === 'attempt_limit'
+          ? 'Too many email attempts. Try again later.'
+          : 'An invitation email was sent recently.'
+    return json({ error: errorMessage, cooldownUntil }, 429)
+  }
+
+  try {
+    await deliverInviteEmail(invite.invited_email_normalized, code, invite.expires_at, inviterName)
+    const sentAt = new Date().toISOString()
+    const cooldownUntil = new Date(Date.parse(sentAt) + emailCooldownMs).toISOString()
+    const { error: sentError } = await client
+      .from('household_invites')
+      .update({ email_sent_at: sentAt, email_send_reserved_until: null })
+      .eq('id', invite.id)
+    if (sentError) console.error('family-invite email delivery metadata failed')
+    return json({ emailDelivery: { status: 'sent', sentAt, cooldownUntil } })
+  } catch (error) {
+    const { error: releaseError } = await client
+      .from('household_invites')
+      .update({ email_send_reserved_until: null })
+      .eq('id', invite.id)
+    if (releaseError) console.error('family-invite email reservation release failed')
+    console.error('family-invite email delivery failed', error instanceof Error ? error.name : 'unknown')
+    return json({ emailDelivery: { status: 'failed' } })
+  }
 }
 
 async function previewOrClaim(
@@ -191,12 +323,16 @@ export default async (request: Request, context: Context): Promise<Response> => 
   if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405)
   try {
     const client = adminClient()
-    const user = await authenticatedUser(client, request)
-    if (!user) return json({ error: 'Please sign in again.' }, 401)
+    const auth = await authenticatedUser(client, request)
+    if (!auth.user) {
+      console.warn('family-invite authentication rejected', auth.reason ?? 'unknown')
+      return json({ error: 'Please sign in again.' }, 401)
+    }
     const body = (await request.json()) as InviteBody
-    if (body.action === 'generate') return await generate(client, user, body)
+    if (body.action === 'generate') return await generate(client, auth.user, body)
+    if (body.action === 'send') return await sendInvite(client, auth.user, body)
     if (body.action === 'preview' || body.action === 'claim') {
-      return await previewOrClaim(client, user, body, request, context)
+      return await previewOrClaim(client, auth.user, body, request, context)
     }
     return json({ error: 'Invalid action.' }, 400)
   } catch (error) {

@@ -1,6 +1,15 @@
 <script lang="ts">
   import type { User } from '@supabase/supabase-js'
-  import { claimInvite, generateInvite, previewInvite, type InvitePreview } from '../lib/api'
+  import InviteCodePanel from './InviteCodePanel.svelte'
+  import {
+    claimInvite,
+    emailInvite,
+    generateInvite,
+    InviteEmailCooldownError,
+    previewInvite,
+    type EmailDeliveryStatus,
+    type InvitePreview,
+  } from '../lib/api'
   import { clearOnboardingIntent, readOnboardingIntent } from '../lib/authIntent'
   import { supabase } from '../lib/supabase'
   import type { ParentProfile, ParentType } from '../lib/types'
@@ -22,8 +31,11 @@
   let preview: InvitePreview | null = null
   let generatedCode = ''
   let expiresAt = ''
+  let cooldownUntil = ''
+  let deliveryStatus: EmailDeliveryStatus = 'not_sent'
   let familyCreated = false
   let busy = false
+  let emailBusy = false
   let error = ''
 
   async function saveProfile() {
@@ -50,9 +62,7 @@
       familyCreated = true
 
       if (invitedEmail.trim()) {
-        const invite = await generateInvite(invitedEmail.trim())
-        generatedCode = invite.code
-        expiresAt = invite.expiresAt
+        await createInviteCode()
       } else {
         await finish()
       }
@@ -60,6 +70,45 @@
       error = caught instanceof Error ? caught.message : 'The family could not be created.'
     } finally {
       busy = false
+    }
+  }
+
+  async function createInviteCode() {
+    const invite = await generateInvite(invitedEmail.trim())
+    generatedCode = invite.code
+    expiresAt = invite.expiresAt
+    deliveryStatus = invite.emailDelivery.status
+    cooldownUntil = invite.emailDelivery.cooldownUntil ?? ''
+  }
+
+  async function retryInvite() {
+    error = ''
+    busy = true
+    try {
+      await createInviteCode()
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'The family code could not be created.'
+    } finally {
+      busy = false
+    }
+  }
+
+  async function sendInvitationEmail() {
+    error = ''
+    emailBusy = true
+    try {
+      const result = await emailInvite(generatedCode)
+      deliveryStatus = result.emailDelivery.status
+      cooldownUntil = result.emailDelivery.cooldownUntil ?? ''
+    } catch (caught) {
+      if (caught instanceof InviteEmailCooldownError) {
+        deliveryStatus = 'sent'
+        cooldownUntil = caught.cooldownUntil
+      } else {
+        error = caught instanceof Error ? caught.message : 'The email could not be sent.'
+      }
+    } finally {
+      emailBusy = false
     }
   }
 
@@ -98,15 +147,6 @@
     await onComplete()
   }
 
-  async function copyCode() {
-    await navigator.clipboard.writeText(generatedCode)
-  }
-
-  async function shareCode() {
-    const text = `Use code ${generatedCode} to join our Baby Infant Log. It expires ${new Date(expiresAt).toLocaleString()}.`
-    if (navigator.share) await navigator.share({ text })
-    else await navigator.clipboard.writeText(text)
-  }
 </script>
 
 <main class="auth-shell">
@@ -122,18 +162,23 @@
     {:else if generatedCode}
       <p class="eyebrow">Invite Parent B</p>
       <h2>Family code</h2>
-      <output class="invite-code" aria-label="Family code">{generatedCode}</output>
-      <p>Bound to {invitedEmail}. Expires {new Date(expiresAt).toLocaleString()}.</p>
-      <div class="button-row">
-        <button type="button" on:click={copyCode}>Copy code</button>
-        <button type="button" on:click={shareCode}>Share code</button>
-      </div>
+      <InviteCodePanel
+        code={generatedCode}
+        {expiresAt}
+        email={invitedEmail}
+        {deliveryStatus}
+        {cooldownUntil}
+        busy={emailBusy}
+        onEmail={sendInvitationEmail}
+      />
+      {#if error}<p class="field-error" role="alert">{error}</p>{/if}
       <button class="primary" type="button" on:click={finish}>Continue to log</button>
     {:else if familyCreated}
       <p class="eyebrow">Family created</p>
-      <h2>Invite can be completed later</h2>
+      <h2>We couldn’t create the invitation</h2>
       {#if error}<p class="field-error" role="alert">{error}</p>{/if}
-      <p>Your family is ready. Generate Parent B's code from Settings when the invitation service is available.</p>
+      <p>Your family is ready. Try the code again now or invite Parent B later from Settings.</p>
+      <button type="button" disabled={busy} on:click={retryInvite}>{busy ? 'Trying again…' : 'Try again'}</button>
       <button class="primary" type="button" on:click={finish}>Continue to log</button>
     {:else}
       <button class="text-button back" type="button" on:click={() => (mode = 'choose')}>← Back</button>

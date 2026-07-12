@@ -27,6 +27,19 @@ A minimal, mobile-first shared infant care log for two parents. The app supports
 
 For the complete Supabase, Netlify, Auth, SMTP, CAPTCHA, and production verification procedure, see [DEPLOYMENT.md](./DEPLOYMENT.md). For Google OAuth setup, use [GOOGLE_AUTH.md](./GOOGLE_AUTH.md).
 
+## Set up the database schema
+
+After linking the repository to a Supabase project, preview the pending schema migrations and then apply them:
+
+```bash
+npx supabase@latest login
+npx supabase@latest link --project-ref YOUR_PROJECT_REF
+npm run db:setup:dry-run
+npm run db:setup
+```
+
+`db:setup` is the repository's single schema-install command. It applies every pending file in `supabase/migrations/` in order and records it in Supabase migration history. It never runs the seed, cleanup, or wipe utilities under `supabase/scripts/`.
+
 ## Reset a disposable test database
 
 The wipe command deletes all application rows **and every Supabase Auth user** in the selected project. Never point it at a production or shared project.
@@ -73,7 +86,7 @@ npm run verify
 
 ## Before the first GitHub push
 
-1. Keep the repository private. Do not add `.env`, `.netlify/`, `supabase/.temp/`, database dumps, private keys, or production build output.
+1. The repository may be public, but it must never contain secrets. Do not add `.env`, `.netlify/`, `supabase/.temp/`, database dumps, private keys, or production build output.
 2. Run `npm run verify` and confirm the dependency audit with `npm audit`.
 3. Initialize Git, then verify that local configuration is ignored before staging:
 
