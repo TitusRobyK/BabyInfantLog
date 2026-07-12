@@ -19,6 +19,7 @@
   export let onComplete: () => Promise<void>
 
   type Mode = 'choose' | 'create' | 'join'
+  type InviteCreationStatus = 'idle' | 'generating' | 'ready' | 'failed'
   let mode: Mode = readOnboardingIntent() ?? 'choose'
 
   let displayName = profile?.display_name ?? ''
@@ -35,6 +36,7 @@
   let cooldownUntil = ''
   let deliveryStatus: EmailDeliveryStatus = 'not_sent'
   let familyCreated = false
+  let inviteCreationStatus: InviteCreationStatus = 'idle'
   let busy = false
   let emailBusy = false
   let error = ''
@@ -71,17 +73,20 @@
       }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'The family could not be created.'
+      if (familyCreated && invitedEmail.trim()) inviteCreationStatus = 'failed'
     } finally {
       busy = false
     }
   }
 
   async function createInviteCode() {
+    inviteCreationStatus = 'generating'
     const invite = await generateInvite(invitedEmail.trim())
     generatedCode = invite.code
     expiresAt = invite.expiresAt
     deliveryStatus = invite.emailDelivery.status
     cooldownUntil = invite.emailDelivery.cooldownUntil ?? ''
+    inviteCreationStatus = 'ready'
   }
 
   async function retryInvite() {
@@ -91,6 +96,7 @@
       await createInviteCode()
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'The family code could not be created.'
+      inviteCreationStatus = 'failed'
     } finally {
       busy = false
     }
@@ -172,13 +178,21 @@
       />
       {#if error}<p class="field-error" role="alert">{error}</p>{/if}
       <button class="primary" type="button" on:click={finish}>Continue to log</button>
-    {:else if familyCreated}
+    {:else if familyCreated && inviteCreationStatus === 'generating'}
+      <section aria-live="polite" aria-busy="true">
+        <p class="eyebrow">Family created</p>
+        <h2>Preparing your family invitation…</h2>
+        <p>This should only take a moment.</p>
+      </section>
+    {:else if familyCreated && inviteCreationStatus === 'failed'}
       <p class="eyebrow">Family created</p>
       <h2>We couldn’t create the invitation</h2>
       {#if error}<p class="field-error" role="alert">{error}</p>{/if}
       <p>Your family is ready. Try the code again now or invite Parent B later from Settings.</p>
-      <button type="button" disabled={busy} on:click={retryInvite}>{busy ? 'Trying again…' : 'Try again'}</button>
-      <button class="primary" type="button" on:click={finish}>Continue to log</button>
+      <div class="stack invitation-failure-actions">
+        <button type="button" disabled={busy} on:click={retryInvite}>{busy ? 'Trying again…' : 'Try again'}</button>
+        <button class="primary" type="button" on:click={finish}>Continue to log</button>
+      </div>
     {:else}
       <button class="text-button back" type="button" on:click={() => (mode = 'choose')}>← Back</button>
       <p class="eyebrow">{mode === 'create' ? 'Parent A · family creator' : 'Parent B · joining parent'}</p>
