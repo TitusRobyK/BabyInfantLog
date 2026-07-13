@@ -60,7 +60,7 @@ describe('Parent B onboarding', () => {
 
     expect(reviewButton.disabled).toBe(true)
 
-    displayName.value = 'Roshin'
+    displayName.value = 'Eve'
     displayName.dispatchEvent(new Event('input', { bubbles: true }))
     codeInput.value = '7k-3qp'
     codeInput.dispatchEvent(new Event('input', { bubbles: true }))
@@ -88,8 +88,8 @@ function startParentACreation() {
   })
 
   const nameInputs = document.querySelectorAll<HTMLInputElement>('input[maxlength="60"]')
-  enterValue(nameInputs[0], 'Titus')
-  enterValue(nameInputs[1], 'Hannah')
+  enterValue(nameInputs[0], 'Adam')
+  enterValue(nameInputs[1], 'Abel')
   enterValue(document.querySelector<HTMLInputElement>('input[type="email"]')!, 'parent-b@example.com')
   Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
     (button) => button.textContent?.trim() === 'Create family',

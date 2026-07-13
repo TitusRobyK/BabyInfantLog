@@ -5,7 +5,7 @@
 **Primary users:** Two parents using iOS Safari and Android Chrome  
 **Hosting target:** Netlify  
 **Data and authentication target:** Supabase  
-**Last updated:** July 12, 2026
+**Last updated:** July 13, 2026
 
 ## 1. Product definition
 
@@ -13,7 +13,7 @@ Baby Infant Log is a private, mobile-first web app that lets either parent recor
 
 > Open the app, tap one large action, and know the event is safely shared.
 
-The app tracks these seven actions:
+The app tracks these eight actions:
 
 1. Poop
 2. Pee
@@ -21,7 +21,8 @@ The app tracks these seven actions:
 4. Burp
 5. Sleep / Wake
 6. Diaper check
-7. Pump / End pump
+7. Hiccups
+8. Pump / End pump
 
 The product is intentionally narrow. Speed, clarity, data safety, and reliable shared state matter more than customization or decorative design.
 
@@ -47,7 +48,7 @@ This specification makes the following default decisions so implementation can r
 
 - One infant and one household are supported at launch.
 - A parent profile type is required: Mother, Father, or Parent/Guardian. This is a display and personalization preference, not an authorization role.
-- The 8 PM brief covers the rolling 24-hour period ending at 8:00 PM in the household's saved timezone.
+- The 8 PM brief covers the household day from the previous local 8:00 PM through the current local 8:00 PM. This is normally 24 hours and becomes 23 or 25 hours across a daylight-saving change.
 - The 8 PM brief is guaranteed to exist in the app. Proactive delivery by email or push notification is not part of the MVP until a delivery channel is chosen.
 - Feed, diaper, Pump, and other detailed attributes are optional after the event has already been logged; details never block the first tap.
 - Baby nickname is required. Date of birth is optional because the app does not need it for core logging.
@@ -57,7 +58,7 @@ This specification makes the following default decisions so implementation can r
 
 ### 3.1 Goals
 
-- Log Poop, Pee, Feed, Burp, and Diaper check with exactly one tap from the home screen.
+- Log Poop, Pee, Feed, Burp, Diaper check, and Hiccups with exactly one tap from the home screen.
 - Start and stop Sleep with one tap for each transition.
 - Start and stop Pump with one tap for each transition, then optionally add amount and side.
 - Show confirmation immediately, without waiting for the network.
@@ -97,7 +98,7 @@ The app has three persistent primary destinations:
 
 - **Log:** one-tap actions, current sleep state, sync state, and recent activity
 - **History:** chronological event list with edit, delete, and date navigation
-- **Trends:** action graphs, Day/Week/Month filters, and daily briefs
+- **Insights:** action graphs, Day/Week/Month filters, and daily briefs
 
 Settings are opened from a small text control in the top bar rather than occupying a fourth bottom-navigation item. The control scrolls with the page instead of remaining sticky. While Settings is open, it changes to **Back to log** so the return destination is explicit.
 
@@ -118,8 +119,8 @@ All dropdown controls use the same clearly sized downward chevron with comfortab
 │ [ Poop ]       [ Pee ]           │
 │ [ Feed ]       [ Burp ]          │
 │ [ Sleep ]      [ Diaper check ]  │
+│ [ Hiccups ]     [ Pump — Mother ] │
 │ [ Sleep Interrupted — active ]   │
-│ [ Pump / End pump — Mother ]      │
 │                                  │
 │ Quick update                     │
 │ Last poop 42m · pee 18m · feed 1h│
@@ -129,7 +130,7 @@ All dropdown controls use the same clearly sized downward chevron with comfortab
 │ 1:52 PM  Pee          Other parent│
 │ 1:08 PM  Wake · slept 48m  You   │
 │                                  │
-│ Log          History      Trends │
+│ Log          History     Insights│
 └──────────────────────────────────┘
 ```
 
@@ -138,8 +139,9 @@ This is a structural wireframe, not a visual style recommendation.
 ### 6.2 Action grid
 
 - Two columns in portrait mode and three columns only when width comfortably allows it.
-- The six shared actions appear without scrolling on common phone sizes whenever practical.
-- Pump appears as a seventh action using the same width, height, and shape as every other action card. Its visibility is a parent preference and remains stable after onboarding.
+- The seven shared actions appear without scrolling on common phone sizes whenever practical.
+- Hiccups is a shared action in the fixed seventh position. When Pump is hidden, the empty eighth grid position remains empty rather than stretching or moving Hiccups.
+- Pump appears as the optional eighth action using the same width, height, and shape as every other action card. Its visibility is a parent preference and remains stable after onboarding.
 - Each button is at least 64 CSS pixels high with at least 12 pixels between targets.
 - Button order never changes automatically. Stable placement prevents tired users from tapping the wrong action.
 - Each action uses a simple line icon plus a visible text label.
@@ -157,11 +159,12 @@ Recommended fixed order:
 | Middle right | Burp | Naturally adjacent to Feed |
 | Bottom left | Sleep / Wake | Stateful action with a changing label |
 | Bottom right | Diaper check | Related to but distinct from Poop/Pee |
-| Personalized action card | Pump / End pump | Visible by default for Mother; stateful but visually consistent with the shared action cards |
+| Fourth-row left | Hiccups | Shared one-tap episode log; its position never changes |
+| Fourth-row right | Pump / End pump | Visible by default for Mother; stateful but visually consistent with the shared action cards |
 
 ### 6.3 Standard one-tap event behavior
 
-Poop, Pee, Feed, Burp, and Diaper check follow this sequence:
+Poop, Pee, Feed, Burp, Diaper check, and Hiccups follow this sequence:
 
 1. On a valid tap, the browser captures the current client timestamp immediately.
 2. A client-generated UUID is assigned before any network request.
@@ -205,8 +208,37 @@ Default: record one Poop event at the client timestamp.
 
 Optional post-log details:
 
-- Small / medium / large
-- Color or consistency only if explicitly wanted later; exclude from initial MVP to avoid unnecessary health-oriented data and UI
+- **Size:** Small, Medium, or Large
+- **Consistency:** Liquid or Formed
+- **Color:** Mustard, Tan, Brown, Orange, Green, Dark green, Red, Pale / white, or Black / tarry
+
+Size is a compact three-option segmented radio control. Consistency is a compact two-option segmented radio control. Each control is left-aligned, at least 44 CSS pixels high, and capped in width so it does not stretch across a desktop sheet. Neither group has a preselected value. A visible **Clear selection** action is available after a value is chosen.
+
+Color uses a three-column grid of small square swatches. The visible swatch is approximately 32 by 32 CSS pixels inside a minimum 44-by-44 touch target. Every swatch has a visible text label, accessible radio semantics, and a selected outline plus checkmark; meaning never depends on color alone. Pale / white retains an Ink border against Paper. The color names are approximate categories, not clinical color matching, and the helper text says **“Choose the closest match.”**
+
+Recommended stored values:
+
+| Visible label | Stored value | UX treatment |
+|---|---|---|
+| Mustard | `mustard_yellow` | Standard swatch |
+| Tan | `tan` | Standard swatch |
+| Brown | `brown` | Standard swatch |
+| Orange | `orange` | Standard swatch |
+| Green | `green` | Standard swatch |
+| Dark green | `dark_green` | Standard swatch; visually distinct from Black / tarry |
+| Red | `red` | Attention note after selection |
+| Pale / white | `pale_white` | Attention note after selection |
+| Black / tarry | `black_tarry` | Attention note with newborn meconium exception |
+
+Selecting an attention color shows a concise, non-blocking note while keeping **Save changes** available:
+
+- Red: **“Red may come from food, but it can also be blood. Contact your baby’s pediatrician promptly.”**
+- Pale / white: **“Pale, white, or chalky stool needs prompt medical advice. Contact your baby’s pediatrician.”**
+- Black / tarry: **“Black stool can be normal during the first few newborn stools. After that, contact your baby’s pediatrician promptly.”**
+
+The app records the parent's observation and does not diagnose the cause. Screen rendering and room lighting make exact color matching unreliable. The normal and attention groupings follow pediatric guidance that yellow, brown, and green ranges are commonly normal, while red, pale/white, and black after the newborn meconium period warrant medical discussion: [American Academy of Pediatrics](https://www.healthychildren.org/English/ages-stages/baby/Pages/The-Many-Colors-of-Poop.aspx) and [Johns Hopkins Medicine](https://www.hopkinsmedicine.org/health/conditions-and-diseases/stool-color-guide).
+
+The first tap always saves the Poop timestamp before details are requested. After an online save, open the optional Poop details sheet automatically. Closing it preserves the event without details. Offline logging remains one tap and defers the editable sheet until the event has synchronized. Recent and History show a compact line only when details exist, for example **“Medium · Liquid · Mustard.”**
 
 ### 7.2 Pee
 
@@ -243,7 +275,7 @@ Sleep is a stateful CTA:
 - While Sleep is active, a separate **Sleep Interrupted** control starts an interruption using one tap.
 - During an open interruption, that control changes to **Resume sleep · Xm**; one tap closes the interruption without ending the sleep session.
 - Tapping Wake while an interruption is open closes both at the same timestamp.
-- History, Trends, and the daily brief show net sleep time and interruption count. Gross session timestamps remain preserved.
+- History, Insights, and the daily brief show net sleep time and interruption count. Gross session timestamps remain preserved.
 
 Concurrency rules:
 
@@ -267,7 +299,17 @@ Optional post-log outcome:
 
 Poop and Pee remain independent action events. Selecting an outcome must not automatically create additional Poop/Pee events unless a future setting explicitly enables that behavior; implicit event creation would make counts confusing.
 
-### 7.7 Pump / End pump
+### 7.7 Hiccups
+
+Default: record one observed Hiccups episode at the client timestamp.
+
+- One tap represents one episode, not each individual hiccup.
+- No detail sheet or required duration is added in this release.
+- The confirmation reads **“Hiccups logged”** and includes Undo.
+- Either parent may record, edit, or remove the shared event.
+- History and Insights use the label **Hiccups** and count episodes neutrally without medical interpretation.
+
+### 7.8 Pump / End pump
 
 Pump is a stateful, parent-specific CTA shown by default on the Mother profile:
 
@@ -297,7 +339,7 @@ Rules:
 - Unit selection uses a two-option segmented radio control in both Settings and Pump details rather than a dropdown.
 - Missing amount is displayed as “Not recorded” and is never counted as zero.
 - Only one open Pump session may exist per pumping parent profile.
-- The session is associated with the family and infant for shared trends while retaining the pumping parent's profile ID.
+- The session is associated with the family and infant for shared insights while retaining the pumping parent's profile ID.
 - Pump and Feed remain separate actions; ending Pump must not automatically create a Feed event.
 - Offline Pump transitions use the same visible queue and conflict-recovery rules as Sleep.
 
@@ -392,18 +434,66 @@ Controls:
 
 The main one-tap logging grid does not disappear when History is opened via browser Back; navigation state must behave predictably.
 
-## 12. Trends and graph interface
+## 12. Insights and graph interface
 
 ### 12.1 Controls
 
-The Trends screen has two control groups:
+The Insights screen has three controls in this order:
 
-1. Action: Poop, Pee, Feed, Burp, Sleep, Diaper check, Pump
-2. Range: Day, Week, Month
+1. **Action dropdown:** All Actions, Poop, Pee, Feed, Burp, Sleep, Diaper check, Hiccups, Pump
+2. **Range segmented control:** Day, Week, Month
+3. **Period navigator:** Previous, a centered period label, and Next
 
-The current action and range are expressed in visible text and accessible state, not color alone. Date navigation uses previous/next arrows plus a centered date label.
+**All Actions** is the first option and the default when Insights opens. It is an option inside the existing Action dropdown, not a second dropdown. The selected action and range are expressed in visible text and accessible state, not color alone.
 
-### 12.2 Chart mapping
+Mobile control layout:
+
+```text
+Action
+[ All Actions                         ▾ ]
+
+[ Day | Week | Month ]
+
+← Previous       Mon, Jul 13       Next →
+                    Today
+```
+
+Period navigation rules:
+
+- Day moves exactly one household calendar day at a time and labels the selection, for example **Mon, Jul 13**.
+- Week moves one Monday-through-Sunday window at a time and labels the inclusive dates, for example **Jul 13–19**.
+- Month moves one household calendar month at a time and labels it, for example **July 2026**.
+- Previous and Next are unboxed text-and-arrow controls with minimum 44-pixel touch targets; do not place tiny arrows inside square buttons.
+- Next is disabled when the selected period contains Today. Future empty periods are not browsable.
+- When viewing a past period, a compact **Today** action returns directly to the current Day, Week, or Month without changing the selected action.
+- Changing Action preserves the selected range and period. Changing range preserves the anchor date and opens the Day, Week, or Month containing that date.
+- The lightweight client keeps roughly 13 months (400 days) available for interactive Insights. Previous is disabled before the earliest fully loaded period and a plain-language note explains the limit; this prevents a period from appearing empty merely because it was not loaded.
+- All period boundaries and labels use the household timezone, including daylight-saving transitions.
+- Real-time updates change the current visible period without resetting the parent's selected controls.
+
+### 12.2 All Actions overview
+
+All Actions uses labeled small multiples rather than overlaying eight series. Counts, durations, and volumes have different units, so a combined y-axis would be visually busy and mathematically misleading.
+
+- Show a compact **At a glance** summary followed by one graph row or section for every action in fixed Log-screen order: Poop, Pee, Feed, Burp, Sleep, Diaper check, Hiccups, Pump.
+- Every action remains visible, including an action with no entries. Its row says **“No entries”** rather than disappearing and shifting the order.
+- Pump remains visible in shared Insights even when the current parent's Pump logging CTA is hidden.
+- Each action heading includes its visible name, line icon, semantic chart color, and exact headline value. Color is never the only identifier.
+- Selecting **View details** on an action changes the Action dropdown to that action while retaining the current Day, Week, or Month and selected period.
+
+Range-specific All Actions presentation:
+
+- **Day:** one shared 24-hour axis with an aligned row for every action. Discrete actions use dots; Sleep and Pump use duration blocks. Alignment makes it easy to see sequences such as Feed, Burp, Hiccups, and Sleep without merging their data.
+- **Week:** one compact seven-bar chart per action, aligned Monday through Sunday. Each section states the period total; Sleep and Pump additionally show total duration, and Feed/Pump show recorded volume when available.
+- **Month:** one compact daily spark-bar chart per action using 28–31 thin day columns. The month total appears in text. Exact dates and values remain available in the single-action detail view rather than crowding every miniature chart.
+- On narrow phones, action sections are one column and vertically scroll. Each action card is compact by default and still shows the action name, headline total, and graph; collapsing a card must never hide its primary insight.
+- Tapping the card header or its **Show daily breakdown** control expands that action in place. Week expands to seven labeled daily values. Month expands to a compact calendar-style daily breakdown grouped by week so all dates remain readable without a 31-row list.
+- Only one action card may be expanded at a time on narrow phones. Expanding another card collapses the previous one and keeps the newly expanded heading in view. Changing the range or period returns every card to its compact state.
+- Expanded cards provide a visible **Hide daily breakdown** control and retain a separate **View details** action. The expand control has a minimum 44-pixel touch target, an accessible expanded/collapsed state, and a chevron whose direction reinforces the current state.
+- At wider widths, two columns are allowed only when labels and values remain readable without horizontal scrolling. Cards may remain expanded independently when the layout has sufficient room.
+- The overview does not repeat every exact event-time list beneath all eight graphs. Each section exposes an accessible summary and **View details** action; the selected single-action view provides the complete list/table.
+
+### 12.3 Single-action chart mapping
 
 | Action | Day | Week | Month | Headline metric |
 |---|---|---|---|---|
@@ -413,26 +503,45 @@ The current action and range are expressed in visible text and accessible state,
 | Burp | Dots on 24-hour timeline | Count per day | Count per day | Count |
 | Sleep | Horizontal sleep intervals | Net hours per day | Net hours per day | Net sleep, sessions, interruptions, longest stretch |
 | Diaper check | Dots on 24-hour timeline | Count per day | Count per day | Checks and optional outcomes |
+| Hiccups | Dots on 24-hour timeline | Episode count per day | Episode count per day | Episodes and median interval when at least two exist |
 | Pump | Horizontal session intervals | Sessions, total minutes, optional volume | Sessions, total minutes, optional volume | Sessions, duration, recorded volume |
+
+### 12.4 Shared graph requirements
 
 Graph requirements:
 
-- Use one selected action at a time by default; do not force seven colored series into one chart.
+- Never overlay all actions on one plot. All Actions uses separately labeled, aligned small multiples; selecting one action opens the detailed graph.
 - Day uses a clearly labeled 24-hour axis. Discrete events appear as dots; Sleep and Pump appear as duration blocks.
-- Every Day chart includes an exact list of event times or session start/end times directly below it.
+- Every single-action Day chart includes an exact list of event times or session start/end times directly below it.
 - Week and Month use horizontal daily rows with a readable date on the left and the exact count or duration on the right.
 - A short sentence above the chart explains what longer bars, dots, or blocks mean.
 - Always pair the visual with a short text summary and an accessible data table or list.
-- Grid lines use Ink at low opacity; the data uses Action; a selected point uses Attention.
+- Grid lines use Ink at low opacity. A selected point uses an outline, visible text, and Attention rather than a color-only change.
 - No 3D charts, gradients, animated sweeps, or decorative illustrations.
 - Tooltips must also work by tap and keyboard, not hover only.
 - Month data may scroll horizontally only if labels cannot remain legible; the page itself must not overflow horizontally.
 - Show “Not enough data yet” rather than inventing a trend.
 
-### 12.3 Aggregation rules
+Semantic chart palette:
+
+| Action | Chart color | Hex |
+|---|---|---|
+| Poop | Rust brown | `#8A4F39` |
+| Pee | Ochre | `#9A6A00` |
+| Feed | Blue | `#286A8A` |
+| Burp | Purple | `#6C4D91` |
+| Sleep | Indigo | `#445C8A` |
+| Diaper check | Green | `#3F7352` |
+| Hiccups | Berry | `#9A4668` |
+| Pump | Terracotta | `#985336` |
+
+These colors are reserved for chart marks and legends; they do not expand the general button, status, or typography palette. The separate Poop observation swatches are literal recorded-color choices rather than chart-series colors. Every chart color has at least 4.5:1 contrast against Paper. Action names, icons, fixed ordering, and exact values remain present so parents with color-vision differences do not need to distinguish colors to understand the view.
+
+### 12.5 Aggregation rules
 
 - Event frequency is a count in the selected period.
 - Median interval requires at least two events.
+- Hiccups frequency counts recorded episodes, not individual physical hiccups.
 - Sleep session count is based on sessions that start in the period.
 - Sleep duration is the portion of each session overlapping the period, so cross-midnight sleep is divided correctly.
 - Sleep interruption overlap is subtracted from duration; interruption count is reported separately.
@@ -442,13 +551,45 @@ Graph requirements:
 - Week begins Monday unless the household setting is changed later.
 - Month is the household calendar month.
 
+### 12.6 Downloadable PDF report
+
+A secondary **Download PDF** action appears beneath the period navigator whenever Insights is available. It remains visible for **All Actions** and every individual action; parents do not need to return to All Actions before downloading.
+
+The report follows the currently visible Insights scope:
+
+- **All Actions:** download one complete report containing the At a glance summary and a clearly separated section for Poop, Pee, Feed, Burp, Sleep, Diaper check, Hiccups, and Pump.
+- **Individual action:** download a focused report containing only the selected action.
+- **Day, Week, or Month:** use the currently selected household period and timezone exactly as shown on screen. A current incomplete period is labeled **“Through [generated time]”** rather than presented as complete.
+
+Download behavior:
+
+1. The parent taps **Download PDF** once.
+2. The button changes to **Preparing report…** and prevents a duplicate request while generation is in progress.
+3. Synced entries from both parents are queried for the selected child and period. If local entries are still pending, the app first attempts to sync them and states **“Syncing recent entries before preparing your report.”**
+4. The completed PDF is downloaded with a readable filename such as `Abel-insights-2026-07-13-to-2026-07-19.pdf`. On iOS Safari, opening the generated PDF in a browser preview is acceptable when the browser does not download it directly; the page provides the plain instruction **“Tap Share, then Save to Files.”**
+5. A failure leaves the current Insights selection untouched and shows **“We couldn’t prepare the report. Try again.”** with a Retry action.
+
+The button is disabled while offline because an authoritative shared report must include the latest synchronized entries from either parent. The UI explains **“Connect to the internet to download a report.”** It must not silently export an incomplete local-only report.
+
+PDF content and presentation:
+
+- Baby name, report scope, selected dates, household timezone, and generation timestamp
+- A concise text summary before charts
+- The same action colors, labels, units, calculations, and missing-data explanations used in Insights
+- Readable charts followed by exact text tables so the report remains understandable when printed in grayscale or viewed without relying on color
+- Sleep interruptions, ongoing-session labels, optional Feed/Pump amounts, and optional Poop observations where applicable
+- Page numbers and a footer stating **“Generated from Baby Log. This is a family record, not medical advice.”**
+- No parent email addresses, authentication data, invitation information, or internal identifiers
+
+PDF generation is an authenticated, on-demand operation. A Netlify Function validates the Supabase access token and active household membership, queries only the authorized child and selected period, generates the PDF, and streams it directly to the parent. A conservative server-side rate limit protects this CPU-heavy action from repeated requests. The generated file is not placed in a public URL or retained in Supabase Storage by default. Server logs must not contain event details or the rendered PDF body.
+
 ## 13. Daily 8 PM brief
 
 ### 13.1 Reporting window
 
-The scheduled brief covers the rolling 24 hours ending at 8:00 PM in the saved household timezone. For example, the July 11 brief covers July 10 at 8:00 PM through July 11 at 8:00 PM.
+The scheduled brief covers the household day ending at 8:00 PM in the saved household timezone. For example, the July 11 brief covers July 10 at 8:00 PM through July 11 at 8:00 PM. On a daylight-saving transition, the actual elapsed duration may be 23 or 25 hours, while both visible boundaries remain local 8:00 PM.
 
-This choice provides a complete and equally sized comparison window. Calendar-day charts remain separate and continue to use midnight boundaries.
+This choice provides a complete, consistently anchored household-day window. Calendar-day charts remain separate and continue to use midnight boundaries.
 
 ### 13.2 Content
 
@@ -458,12 +599,13 @@ The brief contains deterministic, factual summaries such as:
 - **Sleep:** 11h 20m across 6 sessions; longest stretch 3h 05m; 3 interruptions
 - **Diapers:** 6 pee, 2 poop, 4 checks
 - **Burps:** 5 recorded
+- **Hiccups:** 3 episodes recorded
 - **Pump:** 4 sessions totaling 1h 22m; 520 ml recorded across 3 sessions, with 1 amount missing
 - **Compared with recent pattern:** feed count was 1 above the previous 7-brief average
 
 Rules for meaningful insights:
 
-- Compare with the immediately preceding 24-hour period.
+- Compare with the immediately preceding household 8 PM-to-8 PM period.
 - Add a 7-brief rolling average only after at least three prior complete briefs exist.
 - Phrase changes neutrally: “higher,” “lower,” or “about the same.”
 - Avoid “normal,” “abnormal,” “healthy,” “concerning,” or medical threshold language.
@@ -477,6 +619,7 @@ Rules for meaningful insights:
 - A unique key on child plus `period_end` prevents duplicate briefs.
 - The function calculates metrics server-side and stores the brief in Supabase.
 - If an invocation fails, the next scheduled run retries the missing brief.
+- Each run checks the latest 31 household-day windows and repairs up to three missing briefs, allowing a multi-day outage to recover over subsequent scheduled runs without creating a large one-run workload.
 - The function is safe to run manually in staging or from the Netlify dashboard.
 - Historical edits cause the affected brief to be marked stale and recalculated on demand or by the next maintenance pass.
 
@@ -486,7 +629,7 @@ Netlify scheduled functions execute cron in UTC, so a single hard-coded “8 PM�
 
 MVP behavior:
 
-- The brief appears at the top of Trends after 8 PM.
+- The brief appears at the top of Insights after 8 PM.
 - If either parent has the app open, Realtime can announce that the brief is ready.
 - If the app is closed, the brief is waiting on the next open.
 
@@ -802,13 +945,16 @@ Recommended constraints:
 - Active invitation code digest unique; generation retries on collision
 - Invitation claim unique and single-use; invited email compared normalized and case-insensitively
 - Unique event UUID generated on the client
-- Event type restricted to the seven supported types
+- Event type restricted to the eight supported types: Poop, Pee, Feed, Burp, Sleep, Diaper check, Hiccups, and Pump
+- Hiccups is a discrete event: `ended_at` and `subject_parent_id` remain null and `details` defaults to an empty object
 - `ended_at` allowed only for Sleep and Pump and must be later than `occurred_at`
 - At most one non-deleted open Sleep event per child
 - At most one non-deleted open Pump event per pumping parent profile
 - `subject_parent_id` required for Pump and null for non-Pump events
 - Unique daily summary on `(child_id, period_end)`
 - Household timezone validated as an IANA timezone identifier
+
+Because the deployed MVP check constraint predates Hiccups, implementation requires a new forward-only migration that replaces the event-type constraint. Do not edit an already-applied initial migration. Poop size, consistency, and color remain optional keys inside the existing `details` JSONB and do not require new table columns.
 
 ## 17. Proposed technical architecture
 
@@ -845,6 +991,7 @@ Netlify Functions own:
 
 - Five-character invitation generation, digesting, rate-limited validation, and claim orchestration
 - Parent-controlled transactional invitation email delivery using the same active code
+- Authenticated on-demand Insights PDF generation and private response streaming
 - Scheduled 8 PM brief generation
 - Optional future email/push delivery
 - Any future server-only operation that requires the Supabase service-role key
@@ -880,11 +1027,18 @@ Netlify scheduled function
   → calculates deterministic metrics
   → upserts one idempotent daily summary
   → Realtime makes the brief available to open clients
+
+Parent downloads Insights report
+  → sends selected action, range, and anchor date with Supabase access token
+  → Netlify Function validates the session and active household membership
+  → reads the authorized shared event snapshot
+  → generates the matching All Actions or single-action PDF
+  → streams the private file without storing a public copy
 ```
 
 ## 18. Minimal visual system
 
-Only these four base colors are used. Opacity variants of the same color are allowed for borders and grid lines; additional named colors are not.
+Only these four base colors are used for application chrome, buttons, text, borders, focus, status, and surfaces. Opacity variants are allowed for borders and grid lines. The action-specific chart palette in Section 12 and the observational Poop color swatches in Section 7.1 are narrow semantic-data exceptions; they must not spread into navigation, buttons, backgrounds, or decorative styling.
 
 | Token | Hex | Use | Contrast against Paper |
 |---|---|---|---|
@@ -983,6 +1137,7 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 ### 23.1 One-tap logging
 
 - From an authenticated Log screen, each non-stateful action is recorded by one tap.
+- One Hiccups tap records one observed episode and immediately offers Undo.
 - The visible timestamp matches the client tap time in the household timezone.
 - A confirmation and Undo action appear immediately.
 - Optional details never interrupt the save.
@@ -996,17 +1151,17 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 - Sleep Interrupted and Resume sleep each take one tap while Sleep is active.
 - Concurrent taps cannot create two open interruptions.
 - Wake safely closes an open interruption and the sleep session together.
-- History, Trends, and the daily brief subtract interruptions from sleep duration.
+- History, Insights, and the daily brief subtract interruptions from sleep duration.
 - Sleep crossing midnight is plotted and summarized correctly.
 
 ### 23.3 Pump
 
-- A Mother profile sees Pump by default without changing the six shared action positions.
+- A Mother profile sees Pump by default without changing the seven shared action positions.
 - One tap starts Pump and changes the CTA to End pump.
 - One tap ends the session and saves its duration without requiring an amount.
 - Amount, unit, and side can be added after the session is already saved.
 - Pump amount uses the 0–60 ml slider or its converted 0–2.03 fl oz range.
-- Pump history and trends are visible to both parents, and a missing amount is never treated as zero.
+- Pump history and insights are visible to both parents, and a missing amount is never treated as zero.
 
 ### 23.4 Shared use
 
@@ -1031,11 +1186,17 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 - Signing in again allows a blocked queue to retry without changing occurrence time.
 - A failed event is never shown as Saved.
 
-### 23.7 Trends and brief
+### 23.7 Insights and brief
 
 - Each action can be viewed by Day, Week, and Month.
+- All Actions is the default Insights option and shows every action as a separately labeled small multiple rather than an overlaid multi-unit chart.
+- On a narrow phone, All Actions cards initially show their headline and graph in a compact state; one card can be expanded at a time to reveal its daily breakdown without leaving the overview.
+- Previous and Next cycle through complete household Day, Week, or Month periods; Next is disabled for the current period and Today returns from a historical period in one tap.
+- Changing action preserves the selected range and period, while changing range preserves the anchor date.
 - Sleep and Pump use duration while discrete actions use frequency; Feed and Pump also show recorded volume where available.
-- The 8 PM brief covers the correct rolling 24-hour timezone window.
+- Download PDF is available for All Actions and every individual action and exports the currently selected Day, Week, or Month.
+- A report uses synchronized shared entries, matches the visible household period and timezone, excludes private account data, and is never exposed through a public file URL.
+- The 8 PM brief covers the correct household-local 8 PM-to-8 PM window, including daylight-saving transitions.
 - Re-running the scheduled function does not duplicate the brief.
 - Brief wording stays descriptive and non-medical.
 
@@ -1049,7 +1210,7 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 
 ## 24. Testing plan
 
-The optional `supabase/scripts/seed-30-day-newborn-ui-data.sql` fixture creates a deterministic, tagged 30-day newborn-like history for visual QA. Reruns replace only fixture-owned rows and preserve manual events. The fixture is synthetic test data, not medical guidance or a clinical record.
+The optional `supabase/scripts/seed-30-day-newborn-ui-data.sql` fixture creates a deterministic, tagged 30-day newborn-like history for visual QA, including varied Poop size/consistency/color observations and Hiccups episodes. Reruns replace only fixture-owned rows and preserve manual events. The fixture is synthetic test data, not medical guidance or a clinical record.
 
 ### 24.1 Automated
 
@@ -1059,7 +1220,11 @@ The optional `supabase/scripts/seed-30-day-newborn-ui-data.sql` fixture creates 
 - Database tests for concurrent Sleep and Pump start/stop
 - Integration tests for signup, email verification, login, password reset, and session restoration
 - Invitation tests for correct claim, wrong email, wrong code, expiry, rotation, reuse, simultaneous claims, rate limits, and third-parent rejection
-- End-to-end tests for log, undo, edit, offline recovery, History, and Trends
+- End-to-end tests for log, undo, edit, offline recovery, History, and Insights
+- Component tests for optional Poop segmented controls, accessible color-swatch names/selection, clear behavior, and attention-color guidance
+- End-to-end tests for Hiccups one-tap logging, Undo, shared-device synchronization, History, and counts
+- Insights tests for All Actions small multiples, compact and expanded mobile cards, single-expanded-card behavior, action-color labels, period navigation, current-period Next disabling, and household-timezone boundaries
+- PDF report tests for All Actions and every individual action, Day/Week/Month boundaries, current-period labeling, cross-household denial, pending-sync handling, private response headers, filenames, and iOS/Android download behavior
 - Accessibility checks plus manual keyboard and screen-reader review
 
 ### 24.2 Device testing
@@ -1091,8 +1256,9 @@ Test on the actual devices used by both parents, not only emulators:
 ### Phase 1 — Fast shared logging
 
 - Build login, recovery, Parent A creation, Parent B joining, and resumable onboarding
-- Build fixed six shared actions plus the personalized Pump CTA
+- Build fixed seven shared actions, including Hiccups, plus the personalized Pump CTA
 - Implement one-tap events, Sleep/Pump transactions, optimistic UI, Undo, and recent list
+- Add optional post-save Poop size, consistency, and accessible color controls without delaying the first tap
 - Add Realtime updates between parents
 - Verify simultaneous use on both actual devices
 
@@ -1103,10 +1269,10 @@ Test on the actual devices used by both parents, not only emulators:
 - Add PWA manifest/app-shell caching and installation guidance
 - Verify refresh, suspension, offline, and session-expiry recovery
 
-### Phase 3 — Trends and daily brief
+### Phase 3 — Insights and daily brief
 
 - Implement aggregation queries and accessible charts
-- Implement Day/Week/Month controls
+- Implement All Actions small multiples, single-action detail charts, and Day/Week/Month period navigation
 - Implement idempotent Netlify scheduled brief generation
 - Add in-app 8 PM brief and Realtime availability update
 - Validate DST and cross-midnight sleep behavior
@@ -1127,7 +1293,7 @@ This is a planning map, not a request to create these files now.
 ```text
 src/
   components/       action grid, event rows, feedback, chart controls
-  features/         auth, onboarding, invitations, events, sleep, pump, history, trends, briefs
+  features/         auth, onboarding, invitations, events, sleep, pump, history, insights, briefs
   lib/              Supabase client, time, validation, IndexedDB queue
   stores/           session, household, event/sync state
   styles/           four-color tokens and global mobile styles
@@ -1154,17 +1320,16 @@ static/
 These choices can change visible behavior or infrastructure and should be confirmed before code begins:
 
 1. **Daily brief delivery:** in-app only for MVP, email, or web push?
-2. **Brief window:** retain the recommended rolling 24 hours ending at 8 PM, or summarize the partial calendar day from midnight to 8 PM?
+2. **Brief window:** retain the implemented household-local 8 PM-to-8 PM day, or summarize the partial calendar day from midnight to 8 PM?
 3. **Baby profile:** should date of birth remain optional?
 4. **Household timezone:** confirm `America/Chicago` for launch or provide the correct IANA timezone.
 5. **Parent display names:** confirm the short names shown in activity and reports.
 6. **Event correction:** should either parent be able to edit/remove any event, as recommended, or only events they recorded?
-7. **Poop details:** omit entirely in MVP, or include a small optional size selector after logging?
-8. **Code length:** keep the requested five characters with the documented protections, or use the recommended six characters?
-9. **Invitation binding:** confirm that Parent A must provide Parent B's email before a code is generated, as recommended.
-10. **Pump visibility:** show Pump only for Mother by default, with a setting to expose it for another parent profile?
-11. **Pump units:** choose milliliters or fluid ounces as the launch default; each parent can change the remembered preference.
-13. **Production email:** choose the SMTP provider used for verification and password-reset email.
+7. **Code length:** keep the requested five characters with the documented protections, or use the recommended six characters?
+8. **Invitation binding:** confirm that Parent A must provide Parent B's email before a code is generated, as recommended.
+9. **Pump visibility:** show Pump only for Mother by default, with a setting to expose it for another parent profile?
+10. **Pump units:** choose milliliters or fluid ounces as the launch default; each parent can change the remembered preference.
+11. **Production email:** choose the SMTP provider used for verification and password-reset email.
 
 ## 28. Official platform references
 

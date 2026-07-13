@@ -109,6 +109,7 @@ npx netlify-cli dev
 ```
 
 Netlify Dev normally serves the site on `http://localhost:8888` and routes `/api/family-invite` to the local function.
+It also routes authenticated report requests to `/api/insights-report`; this function uses the existing Supabase URL and service-role variables and requires no additional secret.
 
 ## 5. Deploy to Netlify
 
@@ -170,9 +171,10 @@ After Netlify assigns the production URL:
 In Netlify **Functions** confirm:
 
 - `family-invite` is deployed at `/api/family-invite`
+- `insights-report` is deployed at `/api/insights-report`
 - `daily-summary` has a Scheduled badge and a next-run time
 
-Use **Run now** on `daily-summary` to verify it executes. A brief is generated only when a household's saved local hour is 8 PM; the function may legitimately report zero generated briefs at other times.
+Use **Run now** on `daily-summary` to verify it executes. It checks the latest 31 household-local 8 PM windows and creates up to three missing briefs per run, so delayed or multi-day outages recover over subsequent scheduled runs. It legitimately reports zero when those briefs already exist or the active baby was created after the periods ended.
 
 Check function logs for configuration errors, but never log raw signup codes, emails, access tokens, event detail, or secret values.
 
@@ -190,17 +192,20 @@ Use two real email accounts and both target phones.
    - Create and verify a separate account using the invited email
    - Enter the code, confirm the baby, and join
 3. Confirm both devices see the same existing history.
-4. Log Poop, Pee, Feed, Burp, and Diaper check from both devices.
-5. Log Feed, optionally record breast milk/formula and consumed ml, and confirm closing or choosing **Save without amount** keeps the feed.
-6. Start Sleep on one device and confirm the other device adopts the active state. Start an interruption, resume sleep from the other device, and verify net sleep time and interruption count. End sleep while an interruption is active and confirm both close safely.
-7. Start and end Pump from the Mother profile, then add amount and side.
-8. Put one phone in airplane mode, log a discrete event, restore connectivity, and confirm it syncs exactly once.
-9. Edit and remove an event, then test Restore.
-10. Verify Day, Week, and Month trends.
-11. Test forgot-password and reset links from both iOS Mail/Safari and Android Mail/Chrome.
-12. Add the app to both home screens and repeat a one-tap event.
-13. Confirm an unlinked third account can see no household, infant, event, interruption, summary, or Realtime data.
-14. Attempt invalid family codes until the rate limit is reached and confirm the response remains generic.
+4. Log Poop, Pee, Feed, Burp, Diaper check, and Hiccups from both devices.
+5. Log Poop, optionally add size, consistency, and color, and confirm closing the details sheet keeps the original one-tap event.
+6. Log Feed, optionally record breast milk/formula and consumed ml, and confirm closing or choosing **Save without amount** keeps the feed.
+7. Start Sleep on one device and confirm the other device adopts the active state. Start an interruption, resume sleep from the other device, and verify net sleep time and interruption count. End sleep while an interruption is active and confirm both close safely.
+8. Start and end Pump from the Mother profile, then add amount and side.
+9. Put one phone in airplane mode, log a discrete event, restore connectivity, and confirm it syncs exactly once.
+10. Edit and remove an event, then test Restore.
+11. Verify All Actions and every individual action across Day, Week, Month, Previous, Next, and Today in Insights.
+12. Download All Actions and one focused-action PDF on iOS Safari and Android Chrome. Confirm the period, totals, page headers/footers, and private filename are correct.
+    - Confirm repeated report taps are limited and the normal Download button prevents accidental duplicate requests.
+13. Test forgot-password and reset links from both iOS Mail/Safari and Android Mail/Chrome.
+14. Add the app to both home screens and repeat a one-tap event.
+15. Confirm an unlinked third account can see no household, infant, event, interruption, summary, report, or Realtime data.
+16. Attempt invalid family codes until the rate limit is reached and confirm the response remains generic.
 
 ## 9. Daily operations
 

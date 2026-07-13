@@ -95,3 +95,44 @@ describe('event amount sliders', () => {
     expect(onSave.mock.calls[0]?.[3]).toBe(pumpEvent.ended_at)
   })
 })
+
+describe('Poop details', () => {
+  it('uses compact radio choices and stores the selected observations', async () => {
+    const onSave = vi.fn<SaveHandler>(async () => undefined)
+    renderEditor(careEvent('poop', {}), onSave)
+
+    const sizeOptions = document.querySelectorAll<HTMLInputElement>('input[name="poop-size"]')
+    const consistencyOptions = document.querySelectorAll<HTMLInputElement>('input[name="poop-consistency"]')
+    const colorOptions = document.querySelectorAll<HTMLInputElement>('input[name="poop-color"]')
+    expect(sizeOptions).toHaveLength(3)
+    expect(consistencyOptions).toHaveLength(2)
+    expect(colorOptions).toHaveLength(9)
+    expect(document.body.textContent).toContain('Choose the closest match.')
+
+    document.querySelector<HTMLInputElement>('input[name="poop-size"][value="medium"]')?.click()
+    document.querySelector<HTMLInputElement>('input[name="poop-consistency"][value="liquid"]')?.click()
+    document.querySelector<HTMLInputElement>('input[name="poop-color"][value="mustard_yellow"]')?.click()
+    await tick()
+    document.querySelector<HTMLButtonElement>('button.primary')?.click()
+    await tick()
+
+    expect(onSave).toHaveBeenCalledOnce()
+    expect(onSave.mock.calls[0]?.[2]).toMatchObject({ size: 'medium', consistency: 'liquid', color: 'mustard_yellow' })
+  })
+
+  it('shows guidance for attention colors and lets the parent clear a choice', async () => {
+    renderEditor(careEvent('poop', {}))
+
+    document.querySelector<HTMLInputElement>('input[name="poop-color"][value="pale_white"]')?.click()
+    await tick()
+    expect(document.body.textContent).toContain('Pale, white, or chalky stool needs prompt medical advice.')
+
+    const clear = [...document.querySelectorAll<HTMLButtonElement>('button.clear-selection')]
+      .find((button) => button.closest('fieldset')?.querySelector('legend')?.textContent === 'Color')
+    clear?.click()
+    await tick()
+
+    expect(document.querySelector<HTMLInputElement>('input[name="poop-color"]:checked')).toBeNull()
+    expect(document.body.textContent).not.toContain('Pale, white, or chalky stool needs prompt medical advice.')
+  })
+})

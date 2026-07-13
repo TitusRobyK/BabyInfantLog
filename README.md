@@ -1,6 +1,8 @@
 # Baby Infant Log
 
-A minimal, mobile-first shared infant care log for two parents. The app supports Google or email/password accounts, secure family linking, one-tap care events, optional Feed volume, Sleep interruptions, Sleep and Pump sessions, offline retry, shared history, trends, and an 8 PM daily brief.
+A minimal, mobile-first shared infant care log for two parents. The app supports Google or email/password accounts, secure family linking, one-tap care events including Hiccups, optional Poop/Feed details, Sleep interruptions, Sleep and Pump sessions, offline retry, shared history, Insights, private PDF reports, and an 8 PM daily brief.
+
+Interactive Insights keep about 13 months on the device, covering the app's infant-tracking window without loading an unbounded history into mobile memory.
 
 ## Stack
 
@@ -56,7 +58,7 @@ Use the Session pooler or direct connection string shown under **Supabase → Co
 
 ## Add 30 days of newborn UI test data
 
-The seed fixture creates synthetic data for the project's single active baby across the latest 30 calendar days. It includes varied Feed amounts/types, Burps, Pee, Poop, diaper checks, completed Sleep sessions and interruptions, optional Pump sessions for a Mother profile, and past 8 PM briefs.
+The seed fixture creates synthetic data for the project's single active baby across the latest 30 calendar days. It includes varied Feed amounts/types, Burps, Pee, Poop observations, diaper checks, Hiccups episodes, completed Sleep sessions and interruptions, optional Pump sessions for a Mother profile, and past 8 PM briefs.
 
 It is safe to rerun: every row it owns is tagged, and a rerun replaces only those synthetic rows. It does not delete manually logged events or change the baby's birth date. Do not use the fixture as medical guidance or as a real care record.
 
@@ -110,7 +112,7 @@ npm run verify
 ## Main directories
 
 - `src/` — browser application
-- `netlify/functions/` — privileged invitation flow and scheduled daily brief
+- `netlify/functions/` — privileged invitation flow, private Insights PDF generation, and scheduled daily brief
 - `supabase/migrations/` — database schema, constraints, RLS, and transactional functions
 - `supabase/scripts/` — explicitly invoked database maintenance scripts
 - `public/` — PWA/static assets

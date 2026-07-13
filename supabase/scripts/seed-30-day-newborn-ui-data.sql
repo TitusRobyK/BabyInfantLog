@@ -25,10 +25,30 @@ declare
   v_i integer;
   v_jitter integer;
   v_poops integer;
+  v_hiccups integer;
   v_amount integer;
   v_feed_type text;
   v_details jsonb;
+  v_period_start timestamptz;
   v_period_end timestamptz;
+  v_feed_count integer;
+  v_feed_median integer;
+  v_feed_volume integer;
+  v_feed_volume_count integer;
+  v_pee_count integer;
+  v_poop_count integer;
+  v_burp_count integer;
+  v_diaper_count integer;
+  v_hiccup_count integer;
+  v_sleep_sessions integer;
+  v_sleep_gross_minutes integer;
+  v_sleep_interruption_minutes integer;
+  v_sleep_interruption_count integer;
+  v_sleep_total_minutes integer;
+  v_pump_sessions integer;
+  v_pump_total_minutes integer;
+  v_pump_volume integer;
+  v_pump_volume_count integer;
   v_seeded_events integer;
   v_feed_minutes integer[] := array[10, 165, 330, 500, 670, 850, 1030, 1200, 1360];
   v_pee_minutes integer[] := array[90, 270, 450, 630, 810, 990, 1170, 1350];
@@ -179,11 +199,40 @@ begin
           v_at, null, 0,
           jsonb_build_object(
             'seed_source', v_seed_source,
-            'size', case ((v_day_index + v_i) % 3) when 0 then 'small' when 1 then 'medium' else 'large' end
+            'size', case ((v_day_index + v_i) % 3) when 0 then 'small' when 1 then 'medium' else 'large' end,
+            'consistency', case when ((v_day_index + v_i) % 4) = 0 then 'formed' else 'liquid' end,
+            'color', case ((v_day_index + v_i) % 6)
+              when 0 then 'mustard_yellow'
+              when 1 then 'tan'
+              when 2 then 'brown'
+              when 3 then 'orange'
+              when 4 then 'green'
+              else 'dark_green'
+            end
           )
         );
       end if;
     end loop;
+
+    -- Zero to three observed hiccups episodes, logged as episodes rather than
+    -- individual physical hiccups.
+    v_hiccups := v_day_index % 4;
+    if v_hiccups > 0 then
+      for v_i in 1..v_hiccups loop
+        v_jitter := ((v_day_index * 9 + v_i * 17) % 19) - 9;
+        v_at := v_day_start + make_interval(mins => 210 + v_i * 310 + v_jitter);
+        if v_at <= v_cutoff then
+          v_creator := v_parent_ids[1 + ((v_day_index + v_i) % v_parent_count)];
+          insert into public.events (
+            id, household_id, child_id, created_by, subject_parent_id, event_type,
+            occurred_at, ended_at, client_timezone_offset_minutes, details
+          ) values (
+            gen_random_uuid(), v_child.household_id, v_child.id, v_creator, null, 'hiccups',
+            v_at, null, 0, jsonb_build_object('seed_source', v_seed_source)
+          );
+        end if;
+      end loop;
+    end if;
 
     -- Roughly 17 hours of fragmented sleep across short newborn-like sessions.
     for v_i in 1..array_length(v_sleep_minutes, 1) loop
@@ -245,28 +294,141 @@ begin
     -- Past-day summaries make the 8 PM brief visible during UI testing.
     if v_day < v_today then
       v_period_end := (v_day + time '20:00') at time zone v_timezone;
+      v_period_start := ((v_day - 1) + time '20:00') at time zone v_timezone;
+
+      select
+        count(*) filter (where event_type = 'feed'),
+        count(*) filter (where event_type = 'pee'),
+        count(*) filter (where event_type = 'poop'),
+        count(*) filter (where event_type = 'burp'),
+        count(*) filter (where event_type = 'diaper_check'),
+        count(*) filter (where event_type = 'hiccups')
+      into v_feed_count, v_pee_count, v_poop_count, v_burp_count, v_diaper_count, v_hiccup_count
+      from public.events
+      where child_id = v_child.id
+        and details ->> 'seed_source' = v_seed_source
+        and occurred_at >= v_period_start
+        and occurred_at < v_period_end;
+
+      select
+        coalesce(percentile_cont(0.5) within group (order by gap_minutes), 0)::integer
+      into v_feed_median
+      from (
+        select extract(epoch from (
+          occurred_at - lag(occurred_at) over (order by occurred_at)
+        )) / 60 as gap_minutes
+        from public.events
+        where child_id = v_child.id
+          and event_type = 'feed'
+          and details ->> 'seed_source' = v_seed_source
+          and occurred_at >= v_period_start
+          and occurred_at < v_period_end
+      ) feed_gaps
+      where gap_minutes is not null;
+
+      select
+        coalesce(sum((details ->> 'amount_ml')::numeric), 0)::integer,
+        count(*)
+      into v_feed_volume, v_feed_volume_count
+      from public.events
+      where child_id = v_child.id
+        and event_type = 'feed'
+        and details ->> 'seed_source' = v_seed_source
+        and details ? 'amount_ml'
+        and occurred_at >= v_period_start
+        and occurred_at < v_period_end;
+
+      select
+        count(*),
+        coalesce(sum(extract(epoch from (
+          least(ended_at, v_period_end) - greatest(occurred_at, v_period_start)
+        )) / 60), 0)::integer
+      into v_sleep_sessions, v_sleep_gross_minutes
+      from public.events
+      where child_id = v_child.id
+        and event_type = 'sleep'
+        and details ->> 'seed_source' = v_seed_source
+        and occurred_at < v_period_end
+        and ended_at > v_period_start;
+
+      select
+        count(*),
+        coalesce(sum(extract(epoch from (
+          least(interruption.ended_at, v_period_end) - greatest(interruption.started_at, v_period_start)
+        )) / 60), 0)::integer
+      into v_sleep_interruption_count, v_sleep_interruption_minutes
+      from public.sleep_interruptions interruption
+      join public.events sleep on sleep.id = interruption.sleep_event_id
+      where sleep.child_id = v_child.id
+        and sleep.details ->> 'seed_source' = v_seed_source
+        and interruption.started_at < v_period_end
+        and interruption.ended_at > v_period_start;
+
+      v_sleep_total_minutes := greatest(0, v_sleep_gross_minutes - v_sleep_interruption_minutes);
+
+      select
+        count(*),
+        coalesce(sum(extract(epoch from (
+          least(ended_at, v_period_end) - greatest(occurred_at, v_period_start)
+        )) / 60), 0)::integer,
+        coalesce(sum((details ->> 'amount_ml')::numeric) filter (where details ? 'amount_ml'), 0)::integer,
+        count(*) filter (where details ? 'amount_ml')
+      into v_pump_sessions, v_pump_total_minutes, v_pump_volume, v_pump_volume_count
+      from public.events
+      where child_id = v_child.id
+        and event_type = 'pump'
+        and details ->> 'seed_source' = v_seed_source
+        and occurred_at < v_period_end
+        and ended_at > v_period_start;
+
       insert into public.daily_summaries (
         household_id, child_id, period_start, period_end, metrics, comparison, generated_at
       ) values (
         v_child.household_id,
         v_child.id,
-        v_period_end - interval '24 hours',
+        v_period_start,
         v_period_end,
         jsonb_build_object(
           'seed_source', v_seed_source,
-          'counts', jsonb_build_object('feed', 9, 'pee', 8, 'poop', v_poops, 'burp', 7, 'diaper_check', 8),
-          'feed', jsonb_build_object('sessions', 9, 'median_interval_minutes', 170),
-          'sleep', jsonb_build_object('sessions', 9, 'total_minutes', 1000 + (v_day_index % 35), 'interruptions', 2),
+          'counts', jsonb_build_object('feed', v_feed_count, 'pee', v_pee_count, 'poop', v_poop_count, 'burp', v_burp_count, 'diaper_check', v_diaper_count, 'hiccups', v_hiccup_count),
+          'feed', jsonb_build_object('sessions', v_feed_count, 'median_interval_minutes', v_feed_median, 'volume_ml', v_feed_volume, 'sessions_with_volume', v_feed_volume_count),
+          'sleep', jsonb_build_object('sessions', v_sleep_sessions, 'total_minutes', v_sleep_total_minutes, 'interruptions', v_sleep_interruption_count),
+          'pump', jsonb_build_object('sessions', v_pump_sessions, 'total_minutes', v_pump_total_minutes, 'volume_ml', v_pump_volume, 'sessions_with_volume', v_pump_volume_count),
           'sentences', jsonb_build_array(
-            '9 feeds; median gap about 2h 50m.',
-            format('%s sleep across 9 sessions; 2 interruptions.',
-              case when (1000 + (v_day_index % 35)) % 60 = 0
-                then format('%sh', (1000 + (v_day_index % 35)) / 60)
-                else format('%sh %sm', (1000 + (v_day_index % 35)) / 60, (1000 + (v_day_index % 35)) % 60)
+            format('%s feeds; median gap %s%s.',
+              v_feed_count,
+              case when v_feed_median < 60
+                then format('%sm', v_feed_median)
+                when v_feed_median % 60 = 0
+                then format('%sh', v_feed_median / 60)
+                else format('%sh %sm', v_feed_median / 60, v_feed_median % 60)
+              end,
+              case when v_feed_volume_count > 0
+                then format('; %s ml recorded across %s', v_feed_volume, v_feed_volume_count)
+                else ''
               end),
-            format('8 pee, %s poop, 8 diaper checks.', v_poops),
-            '7 burps recorded.'
-          )
+            format('%s sleep across %s sessions; %s interruptions.',
+              case when v_sleep_total_minutes % 60 = 0
+                then format('%sh', v_sleep_total_minutes / 60)
+                else format('%sh %sm', v_sleep_total_minutes / 60, v_sleep_total_minutes % 60)
+              end,
+              v_sleep_sessions,
+              v_sleep_interruption_count),
+            format('%s pee, %s poop, %s diaper checks.', v_pee_count, v_poop_count, v_diaper_count),
+            format('%s burps recorded.', v_burp_count),
+            format('%s hiccups %s recorded.', v_hiccup_count, case when v_hiccup_count = 1 then 'episode' else 'episodes' end)
+          ) || case when v_pump_sessions > 0 then jsonb_build_array(
+            format('%s pump sessions totaling %s; %s ml recorded across %s.',
+              v_pump_sessions,
+              case when v_pump_total_minutes < 60
+                then format('%sm', v_pump_total_minutes)
+                when v_pump_total_minutes % 60 = 0
+                then format('%sh', v_pump_total_minutes / 60)
+                else format('%sh %sm', v_pump_total_minutes / 60, v_pump_total_minutes % 60)
+              end,
+              v_pump_volume,
+              v_pump_volume_count)
+          ) else '[]'::jsonb end
         ),
         '{}'::jsonb,
         now()

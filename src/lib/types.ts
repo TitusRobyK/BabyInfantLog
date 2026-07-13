@@ -1,6 +1,17 @@
 export type ParentType = 'mother' | 'father' | 'parent_guardian'
-export type EventType = 'poop' | 'pee' | 'feed' | 'burp' | 'sleep' | 'diaper_check' | 'pump'
+export type EventType = 'poop' | 'pee' | 'feed' | 'burp' | 'sleep' | 'diaper_check' | 'hiccups' | 'pump'
 export type VolumeUnit = 'ml' | 'fl_oz'
+export type PoopConsistency = 'liquid' | 'formed'
+export type PoopColor =
+  | 'mustard_yellow'
+  | 'tan'
+  | 'brown'
+  | 'orange'
+  | 'green'
+  | 'dark_green'
+  | 'red'
+  | 'pale_white'
+  | 'black_tarry'
 
 export interface ParentProfile {
   user_id: string
@@ -38,6 +49,8 @@ export interface Child {
 
 export interface EventDetails {
   size?: 'small' | 'medium' | 'large'
+  consistency?: PoopConsistency
+  color?: PoopColor
   feed_type?: 'breast_milk' | 'formula' | 'mixed'
   side?: 'left' | 'right' | 'both'
   amount?: number

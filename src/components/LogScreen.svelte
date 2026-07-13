@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { ACTION_BY_TYPE, actionLabel, poopDetailsLabel } from '../lib/actionMeta'
   import { durationMinutes, formatDuration, formatElapsed, formatTime, netSleepMinutes } from '../lib/time'
   import type { CareEvent, Child, EventType, HouseholdMember, ParentProfile, SleepInterruption } from '../lib/types'
 
@@ -42,26 +43,6 @@
     (!lastBurp || new Date(lastBurp.occurred_at).getTime() < new Date(lastFeed.occurred_at).getTime()),
   )
 
-  const labels: Record<EventType, string> = {
-    poop: 'Poop',
-    pee: 'Pee',
-    feed: 'Feed',
-    burp: 'Burp',
-    sleep: 'Sleep',
-    diaper_check: 'Diaper check',
-    pump: 'Pump',
-  }
-
-  const icons: Record<EventType, string> = {
-    poop: '●',
-    pee: '◇',
-    feed: '+',
-    burp: '○',
-    sleep: '—',
-    diaper_check: '✓',
-    pump: '↕',
-  }
-
   function actorName(userId: string) {
     if (userId === profile.user_id) return 'You'
     return members.find((member) => member.user_id === userId)?.profile?.display_name ?? 'Other parent'
@@ -95,10 +76,10 @@
   </header>
 
   <div class="action-grid" aria-label="Care actions">
-    <button class="action-button" type="button" on:click={() => onLog('poop')}><span aria-hidden="true">{icons.poop}</span>Poop</button>
-    <button class="action-button" type="button" on:click={() => onLog('pee')}><span aria-hidden="true">{icons.pee}</span>Pee</button>
-    <button class="action-button" type="button" on:click={() => onLog('feed')}><span aria-hidden="true">{icons.feed}</span>Feed</button>
-    <button class="action-button" type="button" on:click={() => onLog('burp')}><span aria-hidden="true">{icons.burp}</span>Burp</button>
+    <button class="action-button" type="button" on:click={() => onLog('poop')}><span aria-hidden="true">{ACTION_BY_TYPE.poop.icon}</span>Poop</button>
+    <button class="action-button" type="button" on:click={() => onLog('pee')}><span aria-hidden="true">{ACTION_BY_TYPE.pee.icon}</span>Pee</button>
+    <button class="action-button" type="button" on:click={() => onLog('feed')}><span aria-hidden="true">{ACTION_BY_TYPE.feed.icon}</span>Feed</button>
+    <button class="action-button" type="button" on:click={() => onLog('burp')}><span aria-hidden="true">{ACTION_BY_TYPE.burp.icon}</span>Burp</button>
     <button
       class:active-action={activeSleep}
       class="action-button"
@@ -107,10 +88,11 @@
       aria-pressed={Boolean(activeSleep)}
       on:click={() => onSession('sleep', activeSleep ? 'end' : 'start')}
     >
-      <span aria-hidden="true">{icons.sleep}</span>
+      <span aria-hidden="true">{ACTION_BY_TYPE.sleep.icon}</span>
       {activeSleep ? `Wake · ${formatDuration(durationMinutes(activeSleep.occurred_at, new Date(now).toISOString()))}` : 'Sleep'}
     </button>
-    <button class="action-button" type="button" on:click={() => onLog('diaper_check')}><span aria-hidden="true">{icons.diaper_check}</span>Diaper check</button>
+    <button class="action-button" type="button" on:click={() => onLog('diaper_check')}><span aria-hidden="true">{ACTION_BY_TYPE.diaper_check.icon}</span>Diaper check</button>
+    <button class="action-button" type="button" on:click={() => onLog('hiccups')}><span aria-hidden="true">{ACTION_BY_TYPE.hiccups.icon}</span>Hiccups</button>
     {#if profile.show_pump_action}
       <button
         class:active-action={activePump}
@@ -120,7 +102,7 @@
         aria-pressed={Boolean(activePump)}
         on:click={() => onSession('pump', activePump ? 'end' : 'start')}
       >
-        <span aria-hidden="true">{icons.pump}</span>
+        <span aria-hidden="true">{ACTION_BY_TYPE.pump.icon}</span>
         {activePump ? `End pump · ${formatDuration(durationMinutes(activePump.occurred_at, new Date(now).toISOString()))}` : 'Pump'}
       </button>
     {/if}
@@ -163,15 +145,17 @@
         {#each recent as event (event.id)}
           <li>
             <button class="event-row" type="button" on:click={() => onEdit(event)}>
-              <span class="event-mark" aria-hidden="true">{icons[event.event_type]}</span>
+              <span class="event-mark" aria-hidden="true">{ACTION_BY_TYPE[event.event_type].icon}</span>
               <span class="event-main">
-                <strong>{labels[event.event_type]}</strong>
+                <strong>{actionLabel(event.event_type)}</strong>
                 {#if event.event_type === 'sleep' && event.ended_at}
                   <small>{formatDuration(netSleepMinutes(event, interruptions))}{interruptionCount(event.id) ? ` · ${interruptionCount(event.id)} interruption${interruptionCount(event.id) === 1 ? '' : 's'}` : ''}</small>
                 {:else if event.ended_at}
                   <small>{formatDuration(durationMinutes(event.occurred_at, event.ended_at))}</small>
                 {:else if event.event_type === 'feed' && event.details.amount_ml}
                   <small>{event.details.amount_ml} ml</small>
+                {:else if event.event_type === 'poop' && poopDetailsLabel(event.details)}
+                  <small>{poopDetailsLabel(event.details)}</small>
                 {/if}
               </span>
               <span class="event-meta">

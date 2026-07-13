@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { actionLabel, poopDetailsLabel } from '../lib/actionMeta'
   import { formatDate, formatDuration, formatTime, localDateKey, durationMinutes, netSleepMinutes } from '../lib/time'
   import type { CareEvent, EventType, HouseholdMember, ParentProfile, SleepInterruption } from '../lib/types'
 
@@ -31,10 +32,6 @@
     return members.find((member) => member.user_id === userId)?.profile?.display_name ?? 'Other parent'
   }
 
-  function label(type: EventType) {
-    return type === 'diaper_check' ? 'Diaper check' : type.charAt(0).toUpperCase() + type.slice(1)
-  }
-
   function interruptionCount(eventId: string) {
     return interruptions.filter((interruption) => interruption.sleep_event_id === eventId && !interruption.deleted_at).length
   }
@@ -60,6 +57,7 @@
       <option value="burp">Burp</option>
       <option value="sleep">Sleep</option>
       <option value="diaper_check">Diaper check</option>
+      <option value="hiccups">Hiccups</option>
       <option value="pump">Pump</option>
     </select>
   </label>
@@ -70,7 +68,7 @@
         <li>
           <button class="event-row" type="button" on:click={() => onEdit(event)}>
             <span class="event-main">
-              <strong>{label(event.event_type)}</strong>
+              <strong>{actionLabel(event.event_type)}</strong>
               <small>{actorName(event.created_by)}{event.updated_at !== event.recorded_at ? ' · Edited' : ''}</small>
             </span>
             <span class="event-meta">
@@ -81,6 +79,8 @@
                 <small>{formatDuration(durationMinutes(event.occurred_at, event.ended_at))}</small>
               {:else if event.event_type === 'feed' && event.details.amount_ml}
                 <small>{event.details.amount_ml} ml</small>
+              {:else if event.event_type === 'poop' && poopDetailsLabel(event.details)}
+                <small>{poopDetailsLabel(event.details)}</small>
               {/if}
             </span>
           </button>

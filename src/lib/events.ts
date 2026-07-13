@@ -2,6 +2,8 @@ import { enqueue, pendingForUser, removePending } from './offlineQueue'
 import { supabase } from './supabase'
 import type { CareEvent, EventDetails, EventType, PendingOperation, SleepInterruption } from './types'
 
+export const INSIGHTS_HISTORY_DAYS = 400
+
 interface EventScope {
   userId: string
   householdId: string
@@ -10,16 +12,25 @@ interface EventScope {
 
 export async function fetchEvents(householdId: string): Promise<CareEvent[]> {
   const since = new Date()
-  since.setDate(since.getDate() - 62)
-  const { data, error } = await supabase
-    .from('events')
-    .select('*')
-    .eq('household_id', householdId)
-    .is('deleted_at', null)
-    .gte('occurred_at', since.toISOString())
-    .order('occurred_at', { ascending: false })
-  if (error) throw error
-  return (data ?? []) as CareEvent[]
+  since.setDate(since.getDate() - (INSIGHTS_HISTORY_DAYS + 1))
+  const pageSize = 1000
+  const events: CareEvent[] = []
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('events')
+      .select('*')
+      .eq('household_id', householdId)
+      .is('deleted_at', null)
+      .gte('occurred_at', since.toISOString())
+      .order('occurred_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+    const page = (data ?? []) as CareEvent[]
+    events.push(...page)
+    if (page.length < pageSize) break
+  }
+  return events
 }
 
 export async function fetchSummaries(householdId: string) {
@@ -35,16 +46,25 @@ export async function fetchSummaries(householdId: string) {
 
 export async function fetchSleepInterruptions(householdId: string): Promise<SleepInterruption[]> {
   const since = new Date()
-  since.setDate(since.getDate() - 62)
-  const { data, error } = await supabase
-    .from('sleep_interruptions')
-    .select('*')
-    .eq('household_id', householdId)
-    .is('deleted_at', null)
-    .gte('started_at', since.toISOString())
-    .order('started_at', { ascending: false })
-  if (error) throw error
-  return (data ?? []) as SleepInterruption[]
+  since.setDate(since.getDate() - (INSIGHTS_HISTORY_DAYS + 1))
+  const pageSize = 1000
+  const interruptions: SleepInterruption[] = []
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('sleep_interruptions')
+      .select('*')
+      .eq('household_id', householdId)
+      .is('deleted_at', null)
+      .gte('started_at', since.toISOString())
+      .order('started_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+    const page = (data ?? []) as SleepInterruption[]
+    interruptions.push(...page)
+    if (page.length < pageSize) break
+  }
+  return interruptions
 }
 
 export function optimisticEvent(

@@ -9,13 +9,15 @@
   import Onboarding from './components/Onboarding.svelte'
   import ResetPassword from './components/ResetPassword.svelte'
   import SettingsScreen from './components/SettingsScreen.svelte'
-  import TrendsScreen from './components/TrendsScreen.svelte'
+  import InsightsScreen from './components/InsightsScreen.svelte'
+  import { actionLabel } from './lib/actionMeta'
   import { emptyContext, loadContext } from './lib/context'
   import {
     fetchEvents,
     fetchSleepInterruptions,
     fetchSummaries,
     flushPending,
+    INSIGHTS_HISTORY_DAYS,
     optimisticEvent,
     restoreEvent,
     saveDiscreteEvent,
@@ -26,9 +28,10 @@
   } from './lib/events'
   import { clearPendingForUser, pendingForUser, removePending } from './lib/offlineQueue'
   import { isConfigured, supabase } from './lib/supabase'
+  import { localDateKey } from './lib/time'
   import type { AppContext, CareEvent, DailySummary, EventDetails, EventType, SleepInterruption } from './lib/types'
 
-  type Route = 'log' | 'history' | 'trends' | 'settings'
+  type Route = 'log' | 'history' | 'insights' | 'settings'
   type Toast = { message: string; actionLabel?: string; action?: () => void }
 
   let session: Session | null = null
@@ -49,6 +52,9 @@
   let toast: Toast | null = null
   let toastTimer: ReturnType<typeof setTimeout> | null = null
   let channel: RealtimeChannel | null = null
+  const lastDiscreteTapAt = new Map<EventType, number>()
+  const savingLogIds = new Set<string>()
+  const cancelledLogIds = new Set<string>()
 
   onMount(() => {
     void initialize()
@@ -158,17 +164,31 @@
 
   async function logEvent(type: EventType) {
     if (type === 'sleep' || type === 'pump') return
+    const tapTime = performance.now()
+    if (tapTime - (lastDiscreteTapAt.get(type) ?? Number.NEGATIVE_INFINITY) < 600) return
+    lastDiscreteTapAt.set(type, tapTime)
     const occurredAt = new Date().toISOString()
     const optimistic = optimisticEvent(scope(), type, occurredAt)
     events = [optimistic, ...events]
     showToast(`${label(type)} logged`, 'Undo', () => void undoLoggedEvent(optimistic))
+    savingLogIds.add(optimistic.id)
 
     try {
       const saved = await saveDiscreteEvent(optimistic)
+      savingLogIds.delete(saved.id)
+      if (cancelledLogIds.delete(saved.id)) {
+        if (saved.sync_status === 'offline') await removePending(saved.id)
+        else await softDeleteEvent(saved.id)
+        events = events.filter((event) => event.id !== saved.id)
+        pendingCount = user ? (await pendingForUser(user.id)).length : 0
+        return
+      }
       events = events.map((event) => (event.id === saved.id ? saved : event))
       pendingCount = user ? (await pendingForUser(user.id)).length : 0
-      if (type === 'feed' && saved.sync_status === 'saved') editingEvent = saved
+      if ((type === 'feed' || type === 'poop') && saved.sync_status === 'saved') editingEvent = saved
     } catch {
+      savingLogIds.delete(optimistic.id)
+      if (cancelledLogIds.delete(optimistic.id)) return
       events = events.map((event) => (event.id === optimistic.id ? { ...event, sync_status: 'error' } : event))
       showToast(`${label(type)} needs attention`)
     }
@@ -274,8 +294,10 @@
   }
 
   async function undoLoggedEvent(event: CareEvent) {
-    if (event.sync_status === 'offline') await removePending(event.id)
-    else await softDeleteEvent(event.id)
+    const current = events.find((item) => item.id === event.id) ?? event
+    if (savingLogIds.has(event.id)) cancelledLogIds.add(event.id)
+    if (current.sync_status === 'offline') await removePending(event.id)
+    else if (current.sync_status !== 'syncing') await softDeleteEvent(event.id)
     events = events.filter((item) => item.id !== event.id)
     pendingCount = user ? (await pendingForUser(user.id)).length : 0
     showToast('Event removed')
@@ -303,14 +325,15 @@
     showToast('Event restored')
   }
 
-  async function syncPending() {
-    if (!user || !context.household) return
+  async function syncPending(): Promise<number> {
+    if (!user || !context.household) return pendingCount
     const result = await flushPending(user.id)
     pendingCount = (await pendingForUser(user.id)).length
     if (result.completed) {
       await loadHouseholdData()
       showToast(`${result.completed} ${result.completed === 1 ? 'event' : 'events'} synced`)
     }
+    return pendingCount
   }
 
   async function signOut() {
@@ -334,7 +357,7 @@
   }
 
   function label(type: EventType) {
-    return type === 'diaper_check' ? 'Diaper check' : type.charAt(0).toUpperCase() + type.slice(1)
+    return actionLabel(type)
   }
 
   function finishReset() {
@@ -384,8 +407,17 @@
       />
     {:else if route === 'history'}
       <HistoryScreen {events} interruptions={sleepInterruptions} timezone={context.household.timezone} profile={context.profile} members={context.members} onEdit={(event) => (editingEvent = event)} />
-    {:else if route === 'trends'}
-      <TrendsScreen {events} interruptions={sleepInterruptions} {summaries} timezone={context.household.timezone} />
+    {:else if route === 'insights'}
+      <InsightsScreen
+        {events}
+        interruptions={sleepInterruptions}
+        {summaries}
+        timezone={context.household.timezone}
+        {online}
+        {pendingCount}
+        historyStartDate={localDateKey(new Date(Date.now() - INSIGHTS_HISTORY_DAYS * 86_400_000).toISOString(), context.household.timezone)}
+        onSyncPending={syncPending}
+      />
     {:else}
       <SettingsScreen {context} {pendingCount} onUpdated={loadApplication} onSignOut={signOut} />
     {/if}
@@ -393,7 +425,7 @@
     <nav class="bottom-nav" aria-label="Primary">
       <button class:active={route === 'log'} type="button" on:click={() => (route = 'log')}>Log</button>
       <button class:active={route === 'history'} type="button" on:click={() => (route = 'history')}>History</button>
-      <button class:active={route === 'trends'} type="button" on:click={() => (route = 'trends')}>Trends</button>
+      <button class:active={route === 'insights'} type="button" on:click={() => (route = 'insights')}>Insights</button>
     </nav>
 
   </div>

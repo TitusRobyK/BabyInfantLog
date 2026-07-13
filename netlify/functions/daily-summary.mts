@@ -36,6 +36,40 @@ function localParts(date: Date, timezone: string) {
   return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute'), second: get('second') }
 }
 
+function dateKey(parts: { year: number; month: number; day: number }): string {
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
+}
+
+function addDays(value: string, amount: number): string {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day + amount)).toISOString().slice(0, 10)
+}
+
+function zonedTime(value: string, hour: number, timezone: string): Date {
+  const [year, month, day] = value.split('-').map(Number)
+  const targetUtc = Date.UTC(year, month - 1, day, hour)
+  let guess = targetUtc
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const actual = localParts(new Date(guess), timezone)
+    const actualAsUtc = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second)
+    const adjustment = targetUtc - actualAsUtc
+    guess += adjustment
+    if (adjustment === 0) break
+  }
+  return new Date(guess)
+}
+
+export function briefWindow(now: Date, timezone: string, daysAgo = 0): { start: Date; end: Date } {
+  const parts = localParts(now, timezone)
+  const today = dateKey(parts)
+  const latestEndDate = parts.hour >= 20 ? today : addDays(today, -1)
+  const endDate = addDays(latestEndDate, -daysAgo)
+  return {
+    start: zonedTime(addDays(endDate, -1), 20, timezone),
+    end: zonedTime(endDate, 20, timezone),
+  }
+}
+
 function durationMinutes(event: CareEvent, start: Date, end: Date): number {
   const eventStart = Math.max(new Date(event.occurred_at).getTime(), start.getTime())
   const eventEnd = Math.min(event.ended_at ? new Date(event.ended_at).getTime() : end.getTime(), end.getTime())
@@ -75,7 +109,7 @@ function medianInterval(events: CareEvent[]): number | null {
 }
 
 function buildMetrics(events: CareEvent[], interruptions: SleepInterruption[], start: Date, end: Date) {
-  const discreteTypes = ['poop', 'pee', 'feed', 'burp', 'diaper_check']
+  const discreteTypes = ['poop', 'pee', 'feed', 'burp', 'diaper_check', 'hiccups']
   const inWindow = events.filter((event) => {
     const time = new Date(event.occurred_at)
     return time >= start && time < end
@@ -100,10 +134,11 @@ function buildMetrics(events: CareEvent[], interruptions: SleepInterruption[], s
   const feedGap = medianInterval(feeds)
 
   const sentences = [
-    `${counts.feed} feeds${feedGap ? `; median gap ${formatDuration(feedGap)}` : ''}${feedVolumeEvents.length ? `; ${Math.round(feedVolumeMl)} ml recorded across ${feedVolumeEvents.length}` : ''}.`,
+    `${counts.feed} feeds${feedGap !== null ? `; median gap ${formatDuration(feedGap)}` : ''}${feedVolumeEvents.length ? `; ${Math.round(feedVolumeMl)} ml recorded across ${feedVolumeEvents.length}` : ''}.`,
     `${formatDuration(sleepTotal)} sleep across ${sleep.length} sessions${sleepDurations.length ? `; longest ${formatDuration(Math.max(...sleepDurations))}` : ''}${sleepInterruptions.length ? `; ${sleepInterruptions.length} interruption${sleepInterruptions.length === 1 ? '' : 's'}` : ''}.`,
     `${counts.pee} pee, ${counts.poop} poop, ${counts.diaper_check} diaper checks.`,
     `${counts.burp} burps recorded.`,
+    `${counts.hiccups} hiccups ${counts.hiccups === 1 ? 'episode' : 'episodes'} recorded.`,
   ]
   if (pump.length) {
     sentences.push(
@@ -120,41 +155,55 @@ function buildMetrics(events: CareEvent[], interruptions: SleepInterruption[], s
   }
 }
 
-async function processHousehold(client: SupabaseClient, household: { id: string; timezone: string }, now: Date) {
-  const parts = localParts(now, household.timezone)
-  if (parts.hour !== 20) return false
-
-  const periodEnd = new Date(now.getTime() - (parts.minute * 60 + parts.second) * 1000 - now.getMilliseconds())
-  const periodStart = new Date(periodEnd.getTime() - 24 * 60 * 60_000)
+async function processHousehold(client: SupabaseClient, household: { id: string; timezone: string }, now: Date): Promise<number> {
   const { data: child, error: childError } = await client
     .from('children')
-    .select('id')
+    .select('id, created_at')
     .eq('household_id', household.id)
     .eq('active', true)
     .single()
   if (childError) throw childError
+  const childCreatedAt = new Date(child.created_at)
+  const windows = Array.from({ length: 31 }, (_, index) => briefWindow(now, household.timezone, index))
+    .filter((window) => childCreatedAt < window.end)
+  if (!windows.length) return 0
 
-  const { data: existing } = await client
+  const { data: existing, error: existingError } = await client
     .from('daily_summaries')
-    .select('id')
+    .select('period_end')
     .eq('child_id', child.id)
-    .eq('period_end', periodEnd.toISOString())
-    .maybeSingle()
-  if (existing) return false
+    .gte('period_end', windows.at(-1)!.end.toISOString())
+    .lte('period_end', windows[0].end.toISOString())
+  if (existingError) throw existingError
+  const existingEnds = new Set((existing ?? []).map((summary) => new Date(summary.period_end).toISOString()))
+  const missing = windows.filter((window) => !existingEnds.has(window.end.toISOString())).slice(0, 3)
 
+  for (const window of missing) {
+    await generateBriefPeriod(client, household.id, child.id, window.start, window.end)
+  }
+  return missing.length
+}
+
+async function generateBriefPeriod(
+  client: SupabaseClient,
+  householdId: string,
+  childId: string,
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<void> {
   const [{ data: discrete, error: discreteError }, { data: sessions, error: sessionsError }] = await Promise.all([
     client
       .from('events')
       .select('id, event_type, occurred_at, ended_at, details')
-      .eq('child_id', child.id)
+      .eq('child_id', childId)
       .is('deleted_at', null)
-      .in('event_type', ['poop', 'pee', 'feed', 'burp', 'diaper_check'])
+      .in('event_type', ['poop', 'pee', 'feed', 'burp', 'diaper_check', 'hiccups'])
       .gte('occurred_at', periodStart.toISOString())
       .lt('occurred_at', periodEnd.toISOString()),
     client
       .from('events')
       .select('id, event_type, occurred_at, ended_at, details')
-      .eq('child_id', child.id)
+      .eq('child_id', childId)
       .is('deleted_at', null)
       .in('event_type', ['sleep', 'pump'])
       .lt('occurred_at', periodEnd.toISOString())
@@ -180,8 +229,8 @@ async function processHousehold(client: SupabaseClient, household: { id: string;
   const metrics = buildMetrics([...(discrete ?? []), ...(sessions ?? [])] as CareEvent[], interruptions, periodStart, periodEnd)
   const { error: insertError } = await client.from('daily_summaries').upsert(
     {
-      household_id: household.id,
-      child_id: child.id,
+      household_id: householdId,
+      child_id: childId,
       period_start: periodStart.toISOString(),
       period_end: periodEnd.toISOString(),
       metrics,
@@ -191,7 +240,6 @@ async function processHousehold(client: SupabaseClient, household: { id: string;
     { onConflict: 'child_id,period_end', ignoreDuplicates: true },
   )
   if (insertError) throw insertError
-  return true
 }
 
 export default async (): Promise<Response> => {
@@ -206,7 +254,7 @@ export default async (): Promise<Response> => {
     let generated = 0
     for (const household of households ?? []) {
       try {
-        if (await processHousehold(client, household, now)) generated += 1
+        generated += await processHousehold(client, household, now)
       } catch (householdError) {
         console.error('daily-summary household failed', household.id, householdError instanceof Error ? householdError.message : 'unknown error')
       }
