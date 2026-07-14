@@ -33,10 +33,10 @@
     ? interruptions.find((interruption) => interruption.sleep_event_id === activeSleep.id && !interruption.ended_at && !interruption.deleted_at)
     : undefined
   $: recent = events.filter((event) => !event.deleted_at).slice(0, 5)
-  $: lastPoop = latestEvent('poop')
-  $: lastPee = latestEvent('pee')
-  $: lastFeed = latestEvent('feed')
-  $: lastBurp = latestEvent('burp')
+  $: lastPoop = latestEvent(events, 'poop')
+  $: lastPee = latestEvent(events, 'pee')
+  $: lastFeed = latestEvent(events, 'feed')
+  $: lastBurp = latestEvent(events, 'burp')
   $: showBurpReminder = Boolean(
     lastFeed &&
     now - new Date(lastFeed.occurred_at).getTime() >= 15 * 60_000 &&
@@ -58,8 +58,8 @@
     return interruptions.filter((interruption) => interruption.sleep_event_id === eventId && !interruption.deleted_at).length
   }
 
-  function latestEvent(type: 'poop' | 'pee' | 'feed' | 'burp') {
-    return events
+  function latestEvent(sourceEvents: CareEvent[], type: 'poop' | 'pee' | 'feed' | 'burp') {
+    return sourceEvents
       .filter((event) => event.event_type === type && !event.deleted_at)
       .sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime())[0]
   }

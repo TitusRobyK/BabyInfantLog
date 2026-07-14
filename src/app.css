@@ -69,6 +69,10 @@ select { -webkit-appearance: none; appearance: none; padding-right: 3rem; backgr
 .copy-status { margin: 0 0 0.75rem; color: var(--action); font-weight: 700; }
 .invite-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .confirm-box, .brief { margin: 0 0 1rem; padding: 1rem; border: 2px solid var(--action); }
+.brief h2 { margin-bottom: 0.35rem; }
+.brief-timeframe { margin: 0 0 0.55rem; font-weight: 700; }
+.brief ul { display: grid; gap: 0.35rem; margin: 0; padding-left: 1.2rem; }
+.brief-empty { margin: 0; color: rgba(22, 22, 22, 0.72); }
 .loading-screen { display: grid; min-height: 100dvh; place-items: center; }
 .app-shell { position: relative; min-height: 100dvh; padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 .screen { width: min(100%, 720px); min-height: calc(100dvh - 72px); margin: 0 auto; padding: max(1rem, env(safe-area-inset-top)) 1rem 2rem; }
@@ -137,6 +141,7 @@ select { -webkit-appearance: none; appearance: none; padding-right: 3rem; backgr
 .insight-card { padding: 1rem 0; border-top: 1px solid rgba(22, 22, 22, 0.28); }
 .insight-card:last-child { border-bottom: 1px solid rgba(22, 22, 22, 0.28); }
 .insight-card-header { display: flex; align-items: flex-start; gap: 0.7rem; }
+.insight-card-header > div { min-width: 0; }
 .insight-card-header.tappable { position: relative; min-height: 44px; }
 .insight-card-header h3 { margin: 0 0 0.15rem; font-size: 1rem; }
 .insight-card-header p { margin: 0; color: rgba(22, 22, 22, 0.72); font-size: 0.85rem; }
@@ -162,6 +167,8 @@ select { -webkit-appearance: none; appearance: none; padding-right: 3rem; backgr
 .month-breakdown time { font-size: 0.68rem; }
 .month-breakdown strong { color: var(--chart-color); font-size: 0.8rem; }
 .metric-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; margin: 1.25rem 0; padding: 0.8rem 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+.back-to-all-actions { display: inline-flex; width: auto; min-height: 44px; align-items: center; gap: 0.4rem; margin: 0 0 0.35rem; padding: 0.35rem 0; border: 0; color: var(--action); background: transparent; font-weight: 700; text-decoration: none; }
+.metric-summary-title { margin: 0; font-size: 1rem; line-height: normal; }
 .metric-summary span { display: block; width: 100%; color: rgba(22, 22, 22, 0.72); }
 .chart-explanation { margin: 0 0 1.25rem; color: rgba(22, 22, 22, 0.72); font-size: 0.9rem; }
 .day-chart { margin: 1.5rem 0 1rem; }
@@ -255,7 +262,9 @@ button.logout-button { width: min(100%, 180px); }
   .insights-period-nav { grid-column: 1 / -1; }
   .report-download { grid-column: 1 / -1; }
   .history-limit { grid-column: 1 / -1; }
-  .insights-card-grid { grid-template-columns: 1fr 1fr; column-gap: 1.5rem; }
+  .insights-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.5rem; }
+  .insight-card { display: grid; grid-template-rows: minmax(min-content, 1fr) auto auto auto; align-content: stretch; }
+  .insights-card-grid:has(.insight-card.expanded) .insight-card { display: block; }
   .insight-card:nth-last-child(2) { border-bottom: 1px solid rgba(22, 22, 22, 0.28); }
 }
 

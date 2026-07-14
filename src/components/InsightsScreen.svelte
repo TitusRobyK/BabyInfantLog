@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { ACTIONS, ACTION_BY_TYPE, actionLabel, poopDetailsLabel } from '../lib/actionMeta'
   import { downloadInsightsReport } from '../lib/api'
   import {
@@ -14,12 +14,12 @@
     type InsightsAction,
     type InsightsRange,
   } from '../lib/insights'
+  import { buildLiveBrief } from '../lib/liveBrief'
   import { formatDuration, formatTime, timeOfDayPercent } from '../lib/time'
-  import type { CareEvent, DailySummary, EventType, SleepInterruption } from '../lib/types'
+  import type { CareEvent, EventType, SleepInterruption } from '../lib/types'
 
   export let events: CareEvent[]
   export let interruptions: SleepInterruption[]
-  export let summaries: DailySummary[]
   export let timezone: string
   export let online: boolean
   export let pendingCount: number
@@ -35,6 +35,7 @@
   let reportBusy = false
   let reportStatus = ''
   let reportError = ''
+  let detailHeading: HTMLElement | null = null
 
   onMount(() => {
     clock = setInterval(() => (now = new Date()), 60_000)
@@ -44,7 +45,7 @@
   $: period = periodFor(range, anchorDate, timezone, now)
   $: actionInsights = ACTIONS.map((meta) => buildActionInsight(meta.type, events, interruptions, period, timezone))
   $: selectedInsight = action === 'all' ? null : actionInsights.find((insight) => insight.action === action) ?? null
-  $: briefSentences = summaries[0] ? Object.values(summaries[0].metrics?.sentences ?? {}) as string[] : []
+  $: latestBrief = buildLiveBrief(events, interruptions, timezone, now)
   $: previousPeriod = periodFor(range, movePeriodAnchor(range, period.anchorDate, -1), timezone, now)
   $: canMovePrevious = previousPeriod.startKey >= historyStartDate
 
@@ -68,6 +69,23 @@
   function chooseAction(nextAction: InsightsAction) {
     action = nextAction
     expandedAction = null
+  }
+
+  async function openActionDetails(nextAction: EventType) {
+    chooseAction(nextAction)
+    await tick()
+    detailHeading?.focus()
+    if (typeof detailHeading?.scrollIntoView === 'function') detailHeading.scrollIntoView({ block: 'start' })
+  }
+
+  async function returnToAllActions() {
+    const previousAction = action === 'all' ? null : action
+    chooseAction('all')
+    await tick()
+    if (!previousAction) return
+    const target = document.querySelector<HTMLButtonElement>(`[data-insight-action="${previousAction}"] .view-insight-details`)
+    target?.focus()
+    if (typeof target?.scrollIntoView === 'function') target.scrollIntoView({ block: 'nearest' })
   }
 
   function toggleExpanded(type: EventType) {
@@ -250,15 +268,17 @@
 <section class="screen insights-screen" aria-labelledby="insights-title">
   <header class="screen-header"><div><p class="eyebrow">Patterns</p><h1 id="insights-title">Insights</h1></div></header>
 
-  {#if briefSentences.length}
-    <section class="brief" aria-labelledby="brief-title">
-      <p class="eyebrow">Latest 8 PM brief</p>
-      <h2 id="brief-title">From one 8 PM to the next</h2>
+  <section class="brief" aria-labelledby="brief-title">
+    <h2 id="brief-title" class="eyebrow">{latestBrief.title}</h2>
+    <p class="brief-timeframe">{latestBrief.timeframeLabel}</p>
+    {#if latestBrief.empty}
+      <p class="brief-empty">{latestBrief.emptyMessage}</p>
+    {:else}
       <ul>
-        {#each briefSentences as sentence}<li>{sentence}</li>{/each}
+        {#each latestBrief.lines as line}<li>{line}</li>{/each}
       </ul>
-    </section>
-  {/if}
+    {/if}
+  </section>
 
   <div class="insights-controls">
     <label>Action
@@ -301,7 +321,7 @@
 
     <div class="insights-card-grid">
       {#each actionInsights as insight (insight.action)}
-        <article class:expanded={expandedAction === insight.action} class="insight-card" style={`--chart-color: ${ACTION_BY_TYPE[insight.action].color}`}>
+        <article data-insight-action={insight.action} class:expanded={expandedAction === insight.action} class="insight-card" style={`--chart-color: ${ACTION_BY_TYPE[insight.action].color}`}>
           <header class:tappable={range !== 'day'} class="insight-card-header">
             <span class="insight-icon" aria-hidden="true">{ACTION_BY_TYPE[insight.action].icon}</span>
             <div><h3>{actionLabel(insight.action)}</h3><p>{headline(insight)}</p></div>
@@ -355,13 +375,14 @@
             </div>
           {/if}
 
-          <button class="view-insight-details" type="button" on:click={() => chooseAction(insight.action)}>View {actionLabel(insight.action).toLowerCase()} details</button>
+          <button class="view-insight-details" type="button" on:click={() => openActionDetails(insight.action)}>View {actionLabel(insight.action).toLowerCase()} details</button>
         </article>
       {/each}
     </div>
   {:else if selectedInsight}
-    <section class="metric-summary">
-      <strong>{actionLabel(selectedInsight.action)} · {period.label}</strong>
+    <button class="back-to-all-actions" type="button" on:click={returnToAllActions}><span aria-hidden="true">←</span> Back to all actions</button>
+    <section class="metric-summary" aria-labelledby="selected-insight-title">
+      <h2 id="selected-insight-title" class="metric-summary-title" tabindex="-1" bind:this={detailHeading}>{actionLabel(selectedInsight.action)} · {period.label}</h2>
       <span>{headline(selectedInsight)}</span>
       {#if (selectedInsight.action === 'feed' || selectedInsight.action === 'pump') && selectedInsight.missingVolume}
         <span>{selectedInsight.missingVolume} {selectedInsight.missingVolume === 1 ? 'entry has' : 'entries have'} no amount recorded</span>

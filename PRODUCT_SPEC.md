@@ -66,7 +66,7 @@ This specification makes the following default decisions so implementation can r
 - Never silently lose a tap during a slow or interrupted connection.
 - Make mistakes easy to undo or edit without making every correct action slower.
 - Provide readable Day, Week, and Month views for every tracked action.
-- Generate a factual, meaningful 8 PM daily brief.
+- Provide a factual live brief anchored at the latest household-local 8 PM, while retaining idempotent completed daily summaries.
 - Prevent any user outside the claimed family membership from accessing infant data.
 - Work well as a normal browser tab and as an installed home-screen web app.
 
@@ -480,6 +480,7 @@ All Actions uses labeled small multiples rather than overlaying eight series. Co
 - Pump remains visible in shared Insights even when the current parent's Pump logging CTA is hidden.
 - Each action heading includes its visible name, line icon, semantic chart color, and exact headline value. Color is never the only identifier.
 - Selecting **View details** on an action changes the Action dropdown to that action while retaining the current Day, Week, or Month and selected period.
+- The single-action view places an unboxed **← Back to all actions** control immediately above the selected-action summary. It returns to All Actions without changing the range or period, then restores focus to the originating **View details** control so the parent does not need to rediscover the dropdown or lose their place.
 
 Range-specific All Actions presentation:
 
@@ -491,6 +492,9 @@ Range-specific All Actions presentation:
 - Only one action card may be expanded at a time on narrow phones. Expanding another card collapses the previous one and keeps the newly expanded heading in view. Changing the range or period returns every card to its compact state.
 - Expanded cards provide a visible **Hide daily breakdown** control and retain a separate **View details** action. The expand control has a minimum 44-pixel touch target, an accessible expanded/collapsed state, and a chevron whose direction reinforces the current state.
 - At wider widths, two columns are allowed only when labels and values remain readable without horizontal scrolling. Cards may remain expanded independently when the layout has sufficient room.
+- In a two-column layout, cards that share a visual row must keep their graph frames, time-axis labels, and **View details** actions vertically aligned. The title-and-summary area uses the height of the taller card in that row, so a wrapped two-line headline such as Feed or Sleep does not push its graph below the graph beside it.
+- Insight headlines must wrap naturally without clipping, truncation, or overlapping the graph. If a headline needs more than two lines, the paired row grows to fit the taller card; alignment must not depend on action-specific margins or hard-coded copy lengths.
+- In the single-column mobile layout, cards return to natural content height without reserving desktop-only blank space. The spacing from headline to graph, graph to axis, and axis to **View details** remains consistent across every action.
 - The overview does not repeat every exact event-time list beneath all eight graphs. Each section exposes an accessible summary and **View details** action; the selected single-action view provides the complete list/table.
 
 ### 12.3 Single-action chart mapping
@@ -583,36 +587,39 @@ PDF content and presentation:
 
 PDF generation is an authenticated, on-demand operation. A Netlify Function validates the Supabase access token and active household membership, queries only the authorized child and selected period, generates the PDF, and streams it directly to the parent. A conservative server-side rate limit protects this CPU-heavy action from repeated requests. The generated file is not placed in a public URL or retained in Supabase Storage by default. Server logs must not contain event details or the rendered PDF body.
 
-## 13. Daily 8 PM brief
+## 13. Latest brief and completed 8 PM summaries
 
-### 13.1 Reporting window
+### 13.1 Live reporting window
 
-The scheduled brief covers the household day ending at 8:00 PM in the saved household timezone. For example, the July 11 brief covers July 10 at 8:00 PM through July 11 at 8:00 PM. On a daylight-saving transition, the actual elapsed duration may be 23 or 25 hours, while both visible boundaries remain local 8:00 PM.
+The Insights screen begins with an always-visible **Latest brief** covering the most recent 8:00 PM in the saved household timezone through the current time. It is a live view of the family's shared entries, not a completed previous-day report.
 
-This choice provides a complete, consistently anchored household-day window. Calendar-day charts remain separate and continue to use midnight boundaries.
+- Before today's 8:00 PM, the window begins at yesterday's 8:00 PM and the timeframe reads **“Since 8 PM yesterday · updated through [time]”.**
+- At or after today's 8:00 PM, the window resets to today's 8:00 PM and the timeframe reads **“Since 8 PM today · updated through [time]”.**
+- The brief includes entries recorded by either parent and remains independent of the selected action, Day/Week/Month range, and historical period.
+- Sleep and Pump sessions that overlap the boundary are clipped to the window. Open sessions contribute time through now and are labeled ongoing. Sleep interruptions are clipped, merged where necessary, and subtracted from sleep duration.
+- The visible cutoff advances at least once per minute while Insights is open. Realtime event and interruption updates refresh the brief without resetting any Insights controls.
+- The 8 PM boundary is resolved in the household timezone, including daylight-saving transitions. Calendar-day charts remain separate and continue to use midnight boundaries.
 
 ### 13.2 Content
 
-The brief contains deterministic, factual summaries such as:
+The live brief contains only meaningful, non-zero activity lines, such as:
 
-- **Feeds:** 7 feeds; median gap 2h 48m; 520 ml recorded across 5 feeds
-- **Sleep:** 11h 20m across 6 sessions; longest stretch 3h 05m; 3 interruptions
-- **Diapers:** 6 pee, 2 poop, 4 checks
-- **Burps:** 5 recorded
-- **Hiccups:** 3 episodes recorded
-- **Pump:** 4 sessions totaling 1h 22m; 520 ml recorded across 3 sessions, with 1 amount missing
-- **Compared with recent pattern:** feed count was 1 above the previous 7-brief average
+- **Feeds:** count, typical gap when at least two feeds exist, recorded volume, and any missing amounts
+- **Sleep:** net duration, session count, ongoing status, and interruption count
+- **Diaper care:** only the non-zero pee, poop, and diaper-check counts
+- **Burps and Hiccups:** a line only when at least one was recorded
+- **Pump:** session count, duration, ongoing status, recorded volume, and any missing amounts
 
 Rules for meaningful insights:
 
-- Compare with the immediately preceding household 8 PM-to-8 PM period.
-- Add a 7-brief rolling average only after at least three prior complete briefs exist.
-- Phrase changes neutrally: “higher,” “lower,” or “about the same.”
+- Do not show a wall of zero-valued sentences. If the entire window is empty, show **“No entries since 8 PM [today/yesterday]. The brief will update as care is logged.”**
+- Do not claim that an incomplete live window is a completed day or compare it with a completed period.
 - Avoid “normal,” “abnormal,” “healthy,” “concerning,” or medical threshold language.
 - Display missing-data caveats where a conclusion depends on optional logging.
-- Treat the current open sleep session as ongoing and state the cutoff time.
 
-### 13.3 Generation and idempotency
+### 13.3 Completed-summary generation and idempotency
+
+Completed household-day summaries remain a server-side historical record and future notification source. Each completed summary covers the household day ending at 8:00 PM; for example, the July 11 summary covers July 10 at 8:00 PM through July 11 at 8:00 PM. On a daylight-saving transition, elapsed duration may be 23 or 25 hours while both visible boundaries remain local 8:00 PM. These stored summaries do not replace or delay the live **Latest brief**.
 
 - A Netlify Scheduled Function runs on a UTC cron schedule every 15 minutes.
 - Each invocation selects households whose local time has reached 8:00 PM and whose brief for that local period does not exist.
@@ -629,9 +636,9 @@ Netlify scheduled functions execute cron in UTC, so a single hard-coded “8 PM�
 
 MVP behavior:
 
-- The brief appears at the top of Insights after 8 PM.
-- If either parent has the app open, Realtime can announce that the brief is ready.
-- If the app is closed, the brief is waiting on the next open.
+- **Latest brief** is visible at the top of Insights at every time of day and is calculated from the shared entries already available to the app.
+- New entries from either parent update the brief through the existing private Realtime event streams.
+- If the app is closed, the latest window is recalculated from shared storage the next time Insights opens.
 
 Future delivery options, requiring a product decision and provider setup:
 
@@ -1191,12 +1198,15 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 - Each action can be viewed by Day, Week, and Month.
 - All Actions is the default Insights option and shows every action as a separately labeled small multiple rather than an overlaid multi-unit chart.
 - On a narrow phone, All Actions cards initially show their headline and graph in a compact state; one card can be expanded at a time to reveal its daily breakdown without leaving the overview.
+- At multi-column breakpoints, one-line and wrapped multi-line headlines do not create staggered graph positions: paired graph frames, axes, and detail actions remain aligned while all summary text stays readable.
 - Previous and Next cycle through complete household Day, Week, or Month periods; Next is disabled for the current period and Today returns from a historical period in one tap.
 - Changing action preserves the selected range and period, while changing range preserves the anchor date.
+- A visible **Back to all actions** control returns from a single-action detail view while preserving the selected range and period and restoring focus to the originating card.
 - Sleep and Pump use duration while discrete actions use frequency; Feed and Pump also show recorded volume where available.
 - Download PDF is available for All Actions and every individual action and exports the currently selected Day, Week, or Month.
 - A report uses synchronized shared entries, matches the visible household period and timezone, excludes private account data, and is never exposed through a public file URL.
-- The 8 PM brief covers the correct household-local 8 PM-to-8 PM window, including daylight-saving transitions.
+- Latest brief covers the most recent household-local 8 PM through now, includes entries from either parent, survives Insights filter changes, omits zero-only categories, and handles daylight-saving transitions.
+- Open Sleep and Pump sessions and Sleep interruptions are clipped to the live window and represented as ongoing where applicable.
 - Re-running the scheduled function does not duplicate the brief.
 - Brief wording stays descriptive and non-medical.
 
@@ -1223,7 +1233,7 @@ The optional `supabase/scripts/seed-30-day-newborn-ui-data.sql` fixture creates 
 - End-to-end tests for log, undo, edit, offline recovery, History, and Insights
 - Component tests for optional Poop segmented controls, accessible color-swatch names/selection, clear behavior, and attention-color guidance
 - End-to-end tests for Hiccups one-tap logging, Undo, shared-device synchronization, History, and counts
-- Insights tests for All Actions small multiples, compact and expanded mobile cards, single-expanded-card behavior, action-color labels, period navigation, current-period Next disabling, and household-timezone boundaries
+- Insights tests for All Actions small multiples, return-from-details focus and filter preservation, compact and expanded mobile cards, single-expanded-card behavior, one-line versus wrapped-headline graph alignment at two-column breakpoints, natural-height single-column cards, action-color labels, period navigation, current-period Next disabling, live-brief filter independence, open-session clipping, empty-state copy, and household-timezone boundaries
 - PDF report tests for All Actions and every individual action, Day/Week/Month boundaries, current-period labeling, cross-household denial, pending-sync handling, private response headers, filenames, and iOS/Android download behavior
 - Accessibility checks plus manual keyboard and screen-reader review
 
@@ -1319,17 +1329,16 @@ static/
 
 These choices can change visible behavior or infrastructure and should be confirmed before code begins:
 
-1. **Daily brief delivery:** in-app only for MVP, email, or web push?
-2. **Brief window:** retain the implemented household-local 8 PM-to-8 PM day, or summarize the partial calendar day from midnight to 8 PM?
-3. **Baby profile:** should date of birth remain optional?
-4. **Household timezone:** confirm `America/Chicago` for launch or provide the correct IANA timezone.
-5. **Parent display names:** confirm the short names shown in activity and reports.
-6. **Event correction:** should either parent be able to edit/remove any event, as recommended, or only events they recorded?
-7. **Code length:** keep the requested five characters with the documented protections, or use the recommended six characters?
-8. **Invitation binding:** confirm that Parent A must provide Parent B's email before a code is generated, as recommended.
-9. **Pump visibility:** show Pump only for Mother by default, with a setting to expose it for another parent profile?
-10. **Pump units:** choose milliliters or fluid ounces as the launch default; each parent can change the remembered preference.
-11. **Production email:** choose the SMTP provider used for verification and password-reset email.
+1. **Completed-summary delivery:** keep stored 8 PM summaries in-app only, or add email or web push later?
+2. **Baby profile:** should date of birth remain optional?
+3. **Household timezone:** confirm `America/Chicago` for launch or provide the correct IANA timezone.
+4. **Parent display names:** confirm the short names shown in activity and reports.
+5. **Event correction:** should either parent be able to edit/remove any event, as recommended, or only events they recorded?
+6. **Code length:** keep the requested five characters with the documented protections, or use the recommended six characters?
+7. **Invitation binding:** confirm that Parent A must provide Parent B's email before a code is generated, as recommended.
+8. **Pump visibility:** show Pump only for Mother by default, with a setting to expose it for another parent profile?
+9. **Pump units:** choose milliliters or fluid ounces as the launch default; each parent can change the remembered preference.
+10. **Production email:** choose the SMTP provider used for verification and password-reset email.
 
 ## 28. Official platform references
 

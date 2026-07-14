@@ -33,17 +33,6 @@ export async function fetchEvents(householdId: string): Promise<CareEvent[]> {
   return events
 }
 
-export async function fetchSummaries(householdId: string) {
-  const { data, error } = await supabase
-    .from('daily_summaries')
-    .select('*')
-    .eq('household_id', householdId)
-    .order('period_end', { ascending: false })
-    .limit(31)
-  if (error) throw error
-  return data ?? []
-}
-
 export async function fetchSleepInterruptions(householdId: string): Promise<SleepInterruption[]> {
   const since = new Date()
   since.setDate(since.getDate() - (INSIGHTS_HISTORY_DAYS + 1))

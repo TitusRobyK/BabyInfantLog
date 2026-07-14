@@ -1,6 +1,7 @@
 import { mount, tick, unmount } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { todayDateKey } from '../lib/insights'
+import type { CareEvent, EventDetails, EventType } from '../lib/types'
 import InsightsScreen from './InsightsScreen.svelte'
 
 vi.mock('../lib/api', () => ({
@@ -13,15 +14,15 @@ afterEach(async () => {
   if (mounted) await unmount(mounted)
   mounted = undefined
   document.body.innerHTML = ''
+  vi.useRealTimers()
 })
 
-function render(online = true, historyStartDate = '2025-01-01') {
+function render(online = true, historyStartDate = '2025-01-01', events: CareEvent[] = []) {
   mounted = mount(InsightsScreen, {
     target: document.body,
     props: {
-      events: [],
+      events,
       interruptions: [],
-      summaries: [],
       timezone: 'America/Chicago',
       online,
       pendingCount: 0,
@@ -29,6 +30,24 @@ function render(online = true, historyStartDate = '2025-01-01') {
       onSyncPending: async () => 0,
     },
   })
+}
+
+function careEvent(id: string, eventType: EventType, occurredAt: string, details: EventDetails = {}): CareEvent {
+  return {
+    id,
+    household_id: 'household-1',
+    child_id: 'child-1',
+    created_by: 'parent-1',
+    subject_parent_id: null,
+    event_type: eventType,
+    occurred_at: occurredAt,
+    ended_at: null,
+    client_timezone_offset_minutes: 0,
+    details,
+    recorded_at: occurredAt,
+    updated_at: occurredAt,
+    deleted_at: null,
+  }
 }
 
 describe('Insights screen', () => {
@@ -86,6 +105,82 @@ describe('Insights screen', () => {
     buttons.find((button) => button.textContent === 'Day')?.click()
     await tick()
     expect(document.querySelector('.period-label strong')?.textContent).toBe(focusedDay)
+  })
+
+  it('returns from action details without losing the selected range or period', async () => {
+    render()
+    const week = [...document.querySelectorAll<HTMLButtonElement>('.segmented button')]
+      .find((button) => button.textContent === 'Week')
+    week?.click()
+    await tick()
+    document.querySelector<HTMLButtonElement>('.previous-period')?.click()
+    await tick()
+
+    const selectedPeriod = document.querySelector('.period-label strong')?.textContent
+    const feedDetails = document.querySelector<HTMLButtonElement>('[data-insight-action="feed"] .view-insight-details')
+    expect(feedDetails?.textContent).toContain('View feed details')
+    feedDetails?.click()
+    await tick()
+    await Promise.resolve()
+
+    expect(document.querySelector<HTMLSelectElement>('.insights-controls select')?.value).toBe('feed')
+    expect(document.querySelector<HTMLButtonElement>('.back-to-all-actions')?.textContent).toContain('Back to all actions')
+    expect(week?.getAttribute('aria-pressed')).toBe('true')
+    expect(document.querySelector('.period-label strong')?.textContent).toBe(selectedPeriod)
+
+    document.querySelector<HTMLButtonElement>('.back-to-all-actions')?.click()
+    await tick()
+    await Promise.resolve()
+
+    const restoredFeedDetails = document.querySelector<HTMLButtonElement>('[data-insight-action="feed"] .view-insight-details')
+    expect(document.querySelector<HTMLSelectElement>('.insights-controls select')?.value).toBe('all')
+    expect(document.querySelectorAll('.insight-card')).toHaveLength(8)
+    expect(week?.getAttribute('aria-pressed')).toBe('true')
+    expect(document.querySelector('.period-label strong')?.textContent).toBe(selectedPeriod)
+    expect(document.activeElement).toBe(restoredFeedDetails)
+  })
+
+  it('shows a helpful live-brief empty state from the latest 8 PM', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-13T22:46:00.000Z'))
+    render()
+
+    const brief = document.querySelector('.brief')
+    expect(brief?.textContent).toContain('Latest brief')
+    expect(brief?.textContent).toContain('Since 8 PM yesterday · updated through 5:46 PM')
+    expect(brief?.textContent).toContain('No entries since 8 PM yesterday. The brief will update as care is logged.')
+    expect(brief?.textContent).not.toContain('Latest 8 PM brief')
+    expect(brief?.textContent).not.toContain('From one 8 PM to the next')
+  })
+
+  it('keeps the live brief independent of the action, range, and period filters', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-13T22:46:00.000Z'))
+    render(true, '2025-01-01', [
+      careEvent('feed-1', 'feed', '2026-07-13T14:00:00.000Z', { amount_ml: 70 }),
+      careEvent('feed-2', 'feed', '2026-07-13T17:00:00.000Z'),
+      careEvent('pee-1', 'pee', '2026-07-13T16:00:00.000Z'),
+      careEvent('old-poop', 'poop', '2026-07-13T00:30:00.000Z'),
+      careEvent('future-burp', 'burp', '2026-07-13T23:00:00.000Z'),
+    ])
+
+    const initialBrief = document.querySelector('.brief')?.textContent
+    expect(initialBrief).toContain('2 feeds · typical gap 3h · 70 ml recorded · 1 feed without an amount')
+    expect(initialBrief).toContain('1 pee')
+    expect(initialBrief).not.toContain('poop')
+    expect(initialBrief).not.toContain('burp')
+
+    const month = [...document.querySelectorAll<HTMLButtonElement>('.segmented button')]
+      .find((button) => button.textContent === 'Month')
+    month?.click()
+    await tick()
+    document.querySelector<HTMLButtonElement>('.previous-period')?.click()
+    await tick()
+    document.querySelector<HTMLButtonElement>('[data-insight-action="feed"] .view-insight-details')?.click()
+    await tick()
+    await Promise.resolve()
+
+    expect(document.querySelector('.brief')?.textContent).toBe(initialBrief)
   })
 
   it('stops before periods that were not loaded on the device', () => {

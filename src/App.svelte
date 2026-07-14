@@ -15,7 +15,6 @@
   import {
     fetchEvents,
     fetchSleepInterruptions,
-    fetchSummaries,
     flushPending,
     INSIGHTS_HISTORY_DAYS,
     optimisticEvent,
@@ -29,7 +28,7 @@
   import { clearPendingForUser, pendingForUser, removePending } from './lib/offlineQueue'
   import { isConfigured, supabase } from './lib/supabase'
   import { localDateKey } from './lib/time'
-  import type { AppContext, CareEvent, DailySummary, EventDetails, EventType, SleepInterruption } from './lib/types'
+  import type { AppContext, CareEvent, EventDetails, EventType, SleepInterruption } from './lib/types'
 
   type Route = 'log' | 'history' | 'insights' | 'settings'
   type Toast = { message: string; actionLabel?: string; action?: () => void }
@@ -38,7 +37,6 @@
   let user: User | null = null
   let context: AppContext = emptyContext
   let events: CareEvent[] = []
-  let summaries: DailySummary[] = []
   let sleepInterruptions: SleepInterruption[] = []
   let route: Route = 'log'
   let loading = true
@@ -103,7 +101,6 @@
     if (!user) {
       context = emptyContext
       events = []
-      summaries = []
       sleepInterruptions = []
       loading = false
       return
@@ -125,13 +122,11 @@
 
   async function loadHouseholdData() {
     if (!context.household) return
-    const [nextEvents, nextSummaries, nextInterruptions] = await Promise.all([
+    const [nextEvents, nextInterruptions] = await Promise.all([
       fetchEvents(context.household.id),
-      fetchSummaries(context.household.id),
       fetchSleepInterruptions(context.household.id),
     ])
     events = nextEvents
-    summaries = nextSummaries as DailySummary[]
     sleepInterruptions = nextInterruptions
   }
 
@@ -142,11 +137,6 @@
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'events', filter: `household_id=eq.${householdId}` },
-        () => void loadHouseholdData(),
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'daily_summaries', filter: `household_id=eq.${householdId}` },
         () => void loadHouseholdData(),
       )
       .on(
@@ -411,7 +401,6 @@
       <InsightsScreen
         {events}
         interruptions={sleepInterruptions}
-        {summaries}
         timezone={context.household.timezone}
         {online}
         {pendingCount}
