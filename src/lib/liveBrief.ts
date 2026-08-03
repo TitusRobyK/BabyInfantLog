@@ -1,5 +1,6 @@
 import { formatDuration } from './time'
-import type { CareEvent, SleepInterruption } from './types'
+import type { CareEvent, SleepInterruption, VolumeUnit } from './types'
+import { canonicalVolumeMl, formatVolume } from './volume'
 
 export const LIVE_BRIEF_TITLE = 'Latest brief'
 
@@ -96,6 +97,7 @@ export function buildLiveBrief(
   interruptions: SleepInterruption[],
   timezone: string,
   now = new Date(),
+  volumeUnit: VolumeUnit = 'ml',
 ): LiveBrief {
   const window = latestBriefWindow(now, timezone)
   const startMs = window.start.getTime()
@@ -156,7 +158,7 @@ export function buildLiveBrief(
   }
 
   const metrics: LiveBriefMetrics = { counts, feed, sleep, pump }
-  const lines = presentationLines(metrics)
+  const lines = presentationLines(metrics, volumeUnit)
   const empty = lines.length === 0
 
   return {
@@ -170,7 +172,7 @@ export function buildLiveBrief(
   }
 }
 
-function presentationLines(metrics: LiveBriefMetrics): string[] {
+function presentationLines(metrics: LiveBriefMetrics, volumeUnit: VolumeUnit): string[] {
   const lines: string[] = []
 
   if (metrics.feed.sessions) {
@@ -178,7 +180,7 @@ function presentationLines(metrics: LiveBriefMetrics): string[] {
     if (metrics.feed.medianIntervalMinutes !== null) {
       parts.push(`typical gap ${formatDuration(metrics.feed.medianIntervalMinutes)}`)
     }
-    if (metrics.feed.sessionsWithVolume) parts.push(`${Math.round(metrics.feed.volumeMl)} ml recorded`)
+    if (metrics.feed.sessionsWithVolume) parts.push(`${formatVolume(metrics.feed.volumeMl, volumeUnit)} recorded`)
     if (metrics.feed.sessionsWithoutVolume) {
       parts.push(`${countLabel(metrics.feed.sessionsWithoutVolume, 'feed')} without an amount`)
     }
@@ -208,7 +210,7 @@ function presentationLines(metrics: LiveBriefMetrics): string[] {
     const parts = [countLabel(metrics.pump.sessions, 'pump session')]
     if (metrics.pump.totalMinutes) parts.push(`${formatDuration(metrics.pump.totalMinutes)} total`)
     if (metrics.pump.ongoingSessions) parts.push(`${countLabel(metrics.pump.ongoingSessions, 'session')} ongoing`)
-    if (metrics.pump.sessionsWithVolume) parts.push(`${Math.round(metrics.pump.volumeMl)} ml recorded`)
+    if (metrics.pump.sessionsWithVolume) parts.push(`${formatVolume(metrics.pump.volumeMl, volumeUnit)} recorded`)
     if (metrics.pump.sessionsWithoutVolume) {
       parts.push(`${countLabel(metrics.pump.sessionsWithoutVolume, 'session')} without an amount`)
     }
@@ -293,11 +295,11 @@ function mergedDuration(intervals: Interval[]): number {
 }
 
 function hasRecordedVolume(event: CareEvent): boolean {
-  return typeof event.details.amount_ml === 'number' && Number.isFinite(event.details.amount_ml)
+  return canonicalVolumeMl(event.details) !== null
 }
 
 function sumVolume(events: CareEvent[]): number {
-  return events.reduce((total, event) => total + (event.details.amount_ml ?? 0), 0)
+  return events.reduce((total, event) => total + (canonicalVolumeMl(event.details) ?? 0), 0)
 }
 
 function medianInterval(events: CareEvent[]): number | null {

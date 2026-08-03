@@ -1,6 +1,7 @@
 export type ParentType = 'mother' | 'father' | 'parent_guardian'
 export type EventType = 'poop' | 'pee' | 'feed' | 'burp' | 'sleep' | 'diaper_check' | 'hiccups' | 'pump'
 export type VolumeUnit = 'ml' | 'fl_oz'
+export type WeightUnit = 'lb_oz' | 'kg_g'
 export type PoopConsistency = 'liquid' | 'formed'
 export type PoopColor =
   | 'mustard_yellow'
@@ -19,6 +20,8 @@ export interface ParentProfile {
   parent_type: ParentType
   show_pump_action: boolean
   volume_unit: VolumeUnit
+  volume_slider_max_ml: number
+  weight_unit: WeightUnit
   created_at: string
   updated_at: string
 }
@@ -48,7 +51,7 @@ export interface Child {
 }
 
 export interface EventDetails {
-  size?: 'small' | 'medium' | 'large'
+  size?: 'spotted' | 'small' | 'medium' | 'large'
   consistency?: PoopConsistency
   color?: PoopColor
   feed_type?: 'breast_milk' | 'formula' | 'mixed'
@@ -94,6 +97,19 @@ export interface CareEvent {
   sync_status?: 'saved' | 'syncing' | 'offline' | 'error'
 }
 
+export interface WeightMeasurement {
+  id: string
+  household_id: string
+  child_id: string
+  measured_on: string
+  weight_grams: number
+  created_by: string
+  recorded_at: string
+  updated_at: string
+  deleted_at: string | null
+  sync_status?: 'saved' | 'syncing' | 'offline' | 'error'
+}
+
 export interface DailySummary {
   id: string
   household_id: string
@@ -116,7 +132,7 @@ export interface AppContext {
 export interface PendingOperation {
   id: string
   userId: string
-  kind: 'insert_event' | 'session_state' | 'sleep_interruption_state'
+  kind: 'insert_event' | 'session_state' | 'sleep_interruption_state' | 'insert_weight_measurement'
   payload: Record<string, unknown>
   createdAt: string
   attempts: number

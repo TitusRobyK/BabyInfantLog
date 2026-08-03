@@ -5,7 +5,7 @@
 **Primary users:** Two parents using iOS Safari and Android Chrome  
 **Hosting target:** Netlify  
 **Data and authentication target:** Supabase  
-**Last updated:** July 13, 2026
+**Last updated:** August 2, 2026
 
 ## 1. Product definition
 
@@ -13,7 +13,7 @@ Baby Infant Log is a private, mobile-first web app that lets either parent recor
 
 > Open the app, tap one large action, and know the event is safely shared.
 
-The app tracks these eight actions:
+The app tracks eight care actions:
 
 1. Poop
 2. Pee
@@ -23,6 +23,8 @@ The app tracks these eight actions:
 6. Diaper check
 7. Hiccups
 8. Pump / End pump
+
+It also records baby Weight as a dated measurement. Weight is deliberately separate from the rapid care-action grid because it is normally entered occasionally and requires a value and date.
 
 The product is intentionally narrow. Speed, clarity, data safety, and reliable shared state matter more than customization or decorative design.
 
@@ -61,6 +63,7 @@ This specification makes the following default decisions so implementation can r
 - Log Poop, Pee, Feed, Burp, Diaper check, and Hiccups with exactly one tap from the home screen.
 - Start and stop Sleep with one tap for each transition.
 - Start and stop Pump with one tap for each transition, then optionally add amount and side.
+- Record a current or past baby weight with the measurement date and the parent's preferred weight unit.
 - Show confirmation immediately, without waiting for the network.
 - Keep both parents' screens synchronized within seconds when online.
 - Never silently lose a tap during a slow or interrupted connection.
@@ -76,7 +79,7 @@ This specification makes the following default decisions so implementation can r
 - Native iOS or Android apps
 - Medical recommendations, alerts, or developmental guidance
 - AI-generated health interpretations
-- Medication, temperature, growth, milk inventory, or appointment tracking
+- Medication, temperature, growth percentiles, milk inventory, or appointment scheduling
 - Photo uploads, free-form journals, or attachments
 - Wearable or smart-device integration
 - Complex caregiver roles or custody workflows
@@ -96,15 +99,15 @@ This specification makes the following default decisions so implementation can r
 
 The app has three persistent primary destinations:
 
-- **Log:** one-tap actions, current sleep state, sync state, and recent activity
-- **History:** chronological event list with edit, delete, and date navigation
-- **Insights:** action graphs, Day/Week/Month filters, and daily briefs
+- **Log:** one-tap actions, current sleep state, sync state, recent activity, and the latest Weight measurement
+- **History:** chronological care events plus dated Weight measurements, with edit, delete, and date navigation
+- **Insights:** care-action and Weight graphs, Day/Week/Month filters, PDFs, and daily briefs
 
 Settings are opened from a small text control in the top bar rather than occupying a fourth bottom-navigation item. The control scrolls with the page instead of remaining sticky. While Settings is open, it changes to **Back to log** so the return destination is explicit.
 
 The bottom navigation remains fixed above the device safe area. Labels are always visible; icons are not used without text.
 
-All dropdown controls use the same clearly sized downward chevron with comfortable spacing from the right edge. Volume units are a two-option segmented radio control because both choices can remain visible without opening a menu.
+All dropdown controls use the same clearly sized downward chevron with comfortable spacing from the right edge. Volume and Weight units are compact two-option segmented radio controls because both choices can remain visible without opening a menu. Settings keeps these preferences per parent: Pump visibility, the global ml/fl oz choice, the common Feed/Pump slider maximum, and the lb+oz/kg+g Weight choice. Saving a preference changes presentation and future entry controls; it never rewrites existing records.
 
 ## 6. Primary screen specification
 
@@ -124,6 +127,9 @@ All dropdown controls use the same clearly sized downward chevron with comfortab
 │                                  │
 │ Quick update                     │
 │ Last poop 42m · pee 18m · feed 1h│
+│                                  │
+│ Weight              Record weight│
+│ 8 lb 4.2 oz · measured Jul 31    │
 │                                  │
 │ Recent                           │
 │ 2:14 PM  Feed              You   │
@@ -208,11 +214,11 @@ Default: record one Poop event at the client timestamp.
 
 Optional post-log details:
 
-- **Size:** Small, Medium, or Large
-- **Consistency:** Liquid or Formed
+- **Amount:** Spotted, Small, Medium, or Large
+- **Type:** Solid or Liquid
 - **Color:** Mustard, Tan, Brown, Orange, Green, Dark green, Red, Pale / white, or Black / tarry
 
-Size is a compact three-option segmented radio control. Consistency is a compact two-option segmented radio control. Each control is left-aligned, at least 44 CSS pixels high, and capped in width so it does not stretch across a desktop sheet. Neither group has a preselected value. A visible **Clear selection** action is available after a value is chosen.
+Amount is a compact four-option segmented radio control in the fixed order **Spotted, Small, Medium, Large**. Its helper says **“Spotted means only a trace or smear.”** Type is a compact two-option segmented radio control. Each control is left-aligned, at least 44 CSS pixels high, and capped in width so it does not stretch across a desktop sheet. Neither group has a preselected value. A visible **Clear selection** action is available after a value is chosen. The internal `formed` value is retained for compatibility but is presented to parents as **Solid**.
 
 Color uses a three-column grid of small square swatches. The visible swatch is approximately 32 by 32 CSS pixels inside a minimum 44-by-44 touch target. Every swatch has a visible text label, accessible radio semantics, and a selected outline plus checkmark; meaning never depends on color alone. Pale / white retains an Ink border against Paper. The color names are approximate categories, not clinical color matching, and the helper text says **“Choose the closest match.”**
 
@@ -253,9 +259,13 @@ Default: record that a Feed occurred at the client timestamp.
 Optional post-log details:
 
 - Milk type: breast milk, formula, or mixed
-- Amount consumed in milliliters
+- Amount consumed in the parent's preferred volume unit
 
-The optional amount uses a touch-friendly 0–350 ml slider with one-milliliter steps and a live value label. The zero position is labelled **Not recorded**. The Feed timestamp is saved on the first tap before its optional details sheet opens. Closing the sheet or choosing **Save without amount** retains the Feed. No amount is interpreted as unknown, not zero.
+The optional amount uses a touch-friendly slider and live value label. Feed and Pump share one per-parent maximum configured in Settings: **30–600 ml**, adjusted in 10 ml increments, with **350 ml** as the default. A parent may set it to 90 ml now and raise it later as needs change. The action slider uses one-milliliter steps in ml mode or 0.1 fl oz steps in fl oz mode. The zero position is labelled **Not recorded**.
+
+The parent's volume-unit preference applies everywhere on that parent's device-facing experience: Feed and Pump entry, Recent, History, Insights, Latest brief, and PDF reports. Values are stored canonically in milliliters so changing the preference only changes presentation and never rewrites care records. An older saved amount above a newly lowered maximum remains editable by temporarily extending that entry's slider.
+
+The Feed timestamp is saved on the first tap before its optional details sheet opens. Closing the sheet or choosing **Save without amount** retains the Feed. No amount is interpreted as unknown, not zero.
 
 ### 7.4 Burp
 
@@ -323,25 +333,37 @@ Pump is a stateful, parent-specific CTA shown by default on the Mother profile:
 Optional post-log details:
 
 - Total amount
-- Unit: milliliters or fluid ounces, remembered as a parent preference
 - Start time and end time, prefilled from the session and editable when the parent needs to correct either timestamp
-- Left amount and right amount, where useful
 - Left, right, or both when only side is being recorded
 
 Rules:
 
 - Amount is never required to end and save a Pump session.
 - End time must remain later than start time.
-- Total amount uses a slider from 0–60 ml. When fluid ounces are selected, the same upper limit is shown as 2.03 fl oz and the current value is converted immediately.
+- Total amount uses the same per-parent maximum as Feed: 30–600 ml with a 350 ml default. The parent may, for example, use 90 ml now and increase it later.
+- The Pump detail sheet uses the parent's global volume unit and does not repeat a local unit switch.
 - The zero position is labelled **Not recorded**.
-- If left and right amounts are entered, total is derived automatically; the form does not ask for the same total twice.
-- Preserve the entered value and unit, and also store a canonical milliliter value for consistent aggregation and later unit switching.
-- Unit selection uses a two-option segmented radio control in both Settings and Pump details rather than a dropdown.
+- Store a canonical milliliter value for consistent aggregation and later unit switching.
 - Missing amount is displayed as “Not recorded” and is never counted as zero.
 - Only one open Pump session may exist per pumping parent profile.
 - The session is associated with the family and infant for shared insights while retaining the pumping parent's profile ID.
 - Pump and Feed remain separate actions; ending Pump must not automatically create a Feed event.
 - Offline Pump transitions use the same visible queue and conflict-recovery rules as Sleep.
+
+### 7.9 Weight
+
+Weight is a shared dated measurement rather than a one-tap care event.
+
+- A compact **Weight** card appears below Quick update on the Log screen, keeping the frequent action grid stable.
+- The card shows the latest weight and measurement date. **Record weight** opens the entry sheet; selecting the latest value opens it for correction.
+- The date defaults to today in the household timezone. The parent may select an earlier date for a past appointment, but neither the browser nor the database accepts a future date.
+- The per-parent display preference defaults to **Pounds + ounces** and can be changed in Settings to **Kilograms + grams**.
+- Pounds and ounces are entered in separate numeric fields; kilograms and grams are also separate. A live preview shows the exact value that will be saved.
+- Weight is stored canonically as a positive whole number of grams. Changing a parent's unit changes only entry and presentation, including Log, History, Insights, and PDF reports.
+- Either parent may record, view, edit, or soft-delete a measurement. Multiple legitimate measurements on the same date are preserved.
+- A new offline measurement remains visible and joins the existing retry queue. Weight updates from either parent arrive through the family Realtime subscription.
+- Weight is available as its own History filter and Insights selection. It is excluded from the Latest brief and completed 8 PM summaries because it is not a routine care-frequency event.
+- The app reports recorded values and factual change only. It does not calculate percentiles, growth curves, diagnoses, or medical recommendations.
 
 ## 8. Time and event semantics
 
@@ -423,14 +445,16 @@ Each row shows:
 - Net duration and interruption count for completed sleep sessions
 - Edited, Offline, or Needs attention status when applicable
 
+Weight appears in a clearly labelled **Measurements** section for the selected household date. Because Weight is date-only, its row shows the value, date, recorder, and sync status without inventing a clock time.
+
 Controls:
 
 - Today is the default.
 - Previous and Next use full text with directional arrows, unboxed 44-pixel touch targets, and a date label on its own row at narrow mobile widths.
 - Next is disabled while Today is selected so the parent cannot accidentally browse into empty future dates.
-- Filter by action using a compact selector; “All” is the default.
+- Filter using a compact selector with **All**, care actions, and **Weight** grouped as a measurement; All is the default.
 - Selecting a row opens Edit and Remove actions.
-- Empty state: **“No events logged for this day.”**
+- Empty state: **“No entries recorded for this day.”**
 
 The main one-tap logging grid does not disappear when History is opened via browser Back; navigation state must behave predictably.
 
@@ -440,7 +464,7 @@ The main one-tap logging grid does not disappear when History is opened via brow
 
 The Insights screen has three controls in this order:
 
-1. **Action dropdown:** All Actions, Poop, Pee, Feed, Burp, Sleep, Diaper check, Hiccups, Pump
+1. **Action dropdown:** All Actions; a **Care actions** group containing Poop, Pee, Feed, Burp, Sleep, Diaper check, Hiccups, and Pump; and a **Measurements** group containing Weight
 2. **Range segmented control:** Day, Week, Month
 3. **Period navigator:** Previous, a centered period label, and Next
 
@@ -473,10 +497,10 @@ Period navigation rules:
 
 ### 12.2 All Actions overview
 
-All Actions uses labeled small multiples rather than overlaying eight series. Counts, durations, and volumes have different units, so a combined y-axis would be visually busy and mathematically misleading.
+All Actions uses labeled small multiples rather than overlaying unrelated series. Counts, durations, volumes, and weights have different units, so a combined y-axis would be visually busy and mathematically misleading.
 
-- Show a compact **At a glance** summary followed by one graph row or section for every action in fixed Log-screen order: Poop, Pee, Feed, Burp, Sleep, Diaper check, Hiccups, Pump.
-- Every action remains visible, including an action with no entries. Its row says **“No entries”** rather than disappearing and shifting the order.
+- Show a compact **At a glance** summary followed by nine cards: the eight care actions in fixed Log-screen order, followed by Weight.
+- Every action and Weight remain visible even without entries. An empty care-action card says **“No entries”**; Weight says **“No weight recorded.”** Cards never disappear and shift the order.
 - Pump remains visible in shared Insights even when the current parent's Pump logging CTA is hidden.
 - Each action heading includes its visible name, line icon, semantic chart color, and exact headline value. Color is never the only identifier.
 - Selecting **View details** on an action changes the Action dropdown to that action while retaining the current Day, Week, or Month and selected period.
@@ -484,9 +508,9 @@ All Actions uses labeled small multiples rather than overlaying eight series. Co
 
 Range-specific All Actions presentation:
 
-- **Day:** one shared 24-hour axis with an aligned row for every action. Discrete actions use dots; Sleep and Pump use duration blocks. Alignment makes it easy to see sequences such as Feed, Burp, Hiccups, and Sleep without merging their data.
-- **Week:** one compact seven-bar chart per action, aligned Monday through Sunday. Each section states the period total; Sleep and Pump additionally show total duration, and Feed/Pump show recorded volume when available.
-- **Month:** one compact daily spark-bar chart per action using 28–31 thin day columns. The month total appears in text. Exact dates and values remain available in the single-action detail view rather than crowding every miniature chart.
+- **Day:** one shared 24-hour axis with an aligned row for each care action. Discrete actions use dots; Sleep and Pump use duration blocks. Alignment makes it easy to see sequences such as Feed, Burp, Hiccups, and Sleep without merging their data. Weight remains date-based and shows the day's recorded point or points rather than inventing a time-of-day.
+- **Week:** one compact seven-bar chart per care action, aligned Monday through Sunday. Each action states the period total; Sleep and Pump additionally show total duration, and Feed/Pump show recorded volume when available. Weight uses a compact connected-point chart across recorded dates.
+- **Month:** one compact daily spark-bar chart per care action using 28–31 thin day columns. The month total appears in text. Weight uses a compact connected-point chart across its recorded dates. Exact dates and values remain available in the single-item detail view rather than crowding every miniature chart.
 - On narrow phones, action sections are one column and vertically scroll. Each action card is compact by default and still shows the action name, headline total, and graph; collapsing a card must never hide its primary insight.
 - Tapping the card header or its **Show daily breakdown** control expands that action in place. Week expands to seven labeled daily values. Month expands to a compact calendar-style daily breakdown grouped by week so all dates remain readable without a 31-row list.
 - Only one action card may be expanded at a time on narrow phones. Expanding another card collapses the previous one and keeps the newly expanded heading in view. Changing the range or period returns every card to its compact state.
@@ -495,7 +519,7 @@ Range-specific All Actions presentation:
 - In a two-column layout, cards that share a visual row must keep their graph frames, time-axis labels, and **View details** actions vertically aligned. The title-and-summary area uses the height of the taller card in that row, so a wrapped two-line headline such as Feed or Sleep does not push its graph below the graph beside it.
 - Insight headlines must wrap naturally without clipping, truncation, or overlapping the graph. If a headline needs more than two lines, the paired row grows to fit the taller card; alignment must not depend on action-specific margins or hard-coded copy lengths.
 - In the single-column mobile layout, cards return to natural content height without reserving desktop-only blank space. The spacing from headline to graph, graph to axis, and axis to **View details** remains consistent across every action.
-- The overview does not repeat every exact event-time list beneath all eight graphs. Each section exposes an accessible summary and **View details** action; the selected single-action view provides the complete list/table.
+- The overview does not repeat every exact event-time or measurement list beneath all nine graphs. Each section exposes an accessible summary and **View details** action; the selected detail view provides the complete list/table.
 
 ### 12.3 Single-action chart mapping
 
@@ -503,12 +527,13 @@ Range-specific All Actions presentation:
 |---|---|---|---|---|
 | Poop | Dots on 24-hour timeline | Count per day | Count per day | Count and median interval |
 | Pee | Dots on 24-hour timeline | Count per day | Count per day | Count and median interval |
-| Feed | Dots on 24-hour timeline | Count per day | Count per day | Count, median feed interval, and recorded ml |
+| Feed | Dots on 24-hour timeline | Count per day | Count per day | Count, median feed interval, and recorded volume in the parent's unit |
 | Burp | Dots on 24-hour timeline | Count per day | Count per day | Count |
 | Sleep | Horizontal sleep intervals | Net hours per day | Net hours per day | Net sleep, sessions, interruptions, longest stretch |
 | Diaper check | Dots on 24-hour timeline | Count per day | Count per day | Checks and optional outcomes |
 | Hiccups | Dots on 24-hour timeline | Episode count per day | Episode count per day | Episodes and median interval when at least two exist |
 | Pump | Horizontal session intervals | Sessions, total minutes, optional volume | Sessions, total minutes, optional volume | Sessions, duration, recorded volume |
+| Weight | Recorded point or points for the date | Connected points by measurement date | Connected points by measurement date | Latest recorded weight and factual change from the preceding measurement |
 
 ### 12.4 Shared graph requirements
 
@@ -517,6 +542,7 @@ Graph requirements:
 - Never overlay all actions on one plot. All Actions uses separately labeled, aligned small multiples; selecting one action opens the detailed graph.
 - Day uses a clearly labeled 24-hour axis. Discrete events appear as dots; Sleep and Pump appear as duration blocks.
 - Every single-action Day chart includes an exact list of event times or session start/end times directly below it.
+- Weight charts use the date-only measurement, never an invented event time, and always include an exact date-and-value list.
 - Week and Month use horizontal daily rows with a readable date on the left and the exact count or duration on the right.
 - A short sentence above the chart explains what longer bars, dots, or blocks mean.
 - Always pair the visual with a short text summary and an accessible data table or list.
@@ -538,6 +564,7 @@ Semantic chart palette:
 | Diaper check | Green | `#3F7352` |
 | Hiccups | Berry | `#9A4668` |
 | Pump | Terracotta | `#985336` |
+| Weight | Slate | `#5B6178` |
 
 These colors are reserved for chart marks and legends; they do not expand the general button, status, or typography palette. The separate Poop observation swatches are literal recorded-color choices rather than chart-series colors. Every chart color has at least 4.5:1 contrast against Paper. Action names, icons, fixed ordering, and exact values remain present so parents with color-vision differences do not need to distinguish colors to understand the view.
 
@@ -552,6 +579,8 @@ These colors are reserved for chart marks and legends; they do not expand the ge
 - An open sleep session contributes provisional duration through the earlier of now or the report end and is labeled ongoing.
 - Pump session count is based on sessions that start in the period; duration is clipped to the selected period like Sleep.
 - Pump volume totals include only sessions with an entered amount. The summary states how many sessions are missing an amount.
+- Weight is included by its `measured_on` household date. Its headline shows the latest measurement in the selected period and the factual difference from the immediately preceding recorded measurement when one exists.
+- A selected period with no Weight measurement may show the latest earlier recorded weight as context, clearly labelled as outside the period; it must not plot that value as though it occurred inside the period.
 - Week begins Monday unless the household setting is changed later.
 - Month is the household calendar month.
 
@@ -561,7 +590,7 @@ A secondary **Download PDF** action appears beneath the period navigator wheneve
 
 The report follows the currently visible Insights scope:
 
-- **All Actions:** download one complete report containing the At a glance summary and a clearly separated section for Poop, Pee, Feed, Burp, Sleep, Diaper check, Hiccups, and Pump.
+- **All Actions:** download one complete report containing the At a glance summary and a clearly separated section for Poop, Pee, Feed, Burp, Sleep, Diaper check, Hiccups, Pump, and Weight.
 - **Individual action:** download a focused report containing only the selected action.
 - **Day, Week, or Month:** use the currently selected household period and timezone exactly as shown on screen. A current incomplete period is labeled **“Through [generated time]”** rather than presented as complete.
 
@@ -579,9 +608,9 @@ PDF content and presentation:
 
 - Baby name, report scope, selected dates, household timezone, and generation timestamp
 - A concise text summary before charts
-- The same action colors, labels, units, calculations, and missing-data explanations used in Insights
+- The same action/measurement colors, labels, per-parent volume and weight units, calculations, and missing-data explanations used in Insights
 - Readable charts followed by exact text tables so the report remains understandable when printed in grayscale or viewed without relying on color
-- Sleep interruptions, ongoing-session labels, optional Feed/Pump amounts, and optional Poop observations where applicable
+- Sleep interruptions, ongoing-session labels, optional Feed/Pump amounts, optional Poop observations, and dated Weight values where applicable
 - Page numbers and a footer stating **“Generated from Baby Log. This is a family record, not medical advice.”**
 - No parent email addresses, authentication data, invitation information, or internal identifiers
 
@@ -610,6 +639,8 @@ The live brief contains only meaningful, non-zero activity lines, such as:
 - **Burps and Hiccups:** a line only when at least one was recorded
 - **Pump:** session count, duration, ongoing status, recorded volume, and any missing amounts
 
+Feed and Pump volume is formatted in the current parent's saved unit. Weight is intentionally omitted because this brief summarizes care activity since the latest 8 PM boundary rather than occasional growth measurements.
+
 Rules for meaningful insights:
 
 - Do not show a wall of zero-valued sentences. If the entire window is empty, show **“No entries since 8 PM [today/yesterday]. The brief will update as care is logged.”**
@@ -625,6 +656,7 @@ Completed household-day summaries remain a server-side historical record and fut
 - Each invocation selects households whose local time has reached 8:00 PM and whose brief for that local period does not exist.
 - A unique key on child plus `period_end` prevents duplicate briefs.
 - The function calculates metrics server-side and stores the brief in Supabase.
+- Stored metrics keep Feed/Pump volume canonically in milliliters, while stored summary sentences remain unit-neutral. Any future in-app, email, or push delivery formats those metrics separately for each parent's saved unit.
 - If an invocation fails, the next scheduled run retries the missing brief.
 - Each run checks the latest 31 household-day windows and repairs up to three missing briefs, allowing a multi-day outage to recover over subsequent scheduled runs without creating a large one-run workload.
 - The function is safe to run manually in staging or from the Netlify dashboard.
@@ -871,10 +903,13 @@ Additional requirements:
 erDiagram
     PARENT_PROFILES ||--o{ HOUSEHOLD_MEMBERS : joins
     PARENT_PROFILES ||--o{ EVENTS : records
+    PARENT_PROFILES ||--o{ WEIGHT_MEASUREMENTS : records
     HOUSEHOLDS ||--o{ HOUSEHOLD_MEMBERS : has
     HOUSEHOLDS ||--o{ HOUSEHOLD_INVITES : issues
     HOUSEHOLDS ||--o{ CHILDREN : contains
+    HOUSEHOLDS ||--o{ WEIGHT_MEASUREMENTS : contains
     CHILDREN ||--o{ EVENTS : has
+    CHILDREN ||--o{ WEIGHT_MEASUREMENTS : has
     CHILDREN ||--o{ DAILY_SUMMARIES : has
 
     PARENT_PROFILES {
@@ -882,6 +917,9 @@ erDiagram
       text display_name
       text parent_type
       boolean show_pump_action
+      text volume_unit
+      int volume_slider_max_ml
+      text weight_unit
       timestamptz created_at
     }
 
@@ -931,6 +969,17 @@ erDiagram
       timestamptz updated_at
       timestamptz deleted_at
     }
+    WEIGHT_MEASUREMENTS {
+      uuid id PK
+      uuid household_id FK
+      uuid child_id FK
+      date measured_on
+      int weight_grams
+      uuid created_by FK
+      timestamptz recorded_at
+      timestamptz updated_at
+      timestamptz deleted_at
+    }
     DAILY_SUMMARIES {
       uuid id PK
       uuid child_id FK
@@ -958,10 +1007,13 @@ Recommended constraints:
 - At most one non-deleted open Sleep event per child
 - At most one non-deleted open Pump event per pumping parent profile
 - `subject_parent_id` required for Pump and null for non-Pump events
+- Parent `volume_unit` restricted to `ml` or `fl_oz`; `volume_slider_max_ml` restricted to 30–600 in 10 ml increments; `weight_unit` restricted to `lb_oz` or `kg_g`
+- Weight measurement UUID is client-generated; `weight_grams` is a positive integer; the child must belong to the stated household
+- `measured_on` may be today or earlier in the household timezone and is rejected when it is in the future
 - Unique daily summary on `(child_id, period_end)`
 - Household timezone validated as an IANA timezone identifier
 
-Because the deployed MVP check constraint predates Hiccups, implementation requires a new forward-only migration that replaces the event-type constraint. Do not edit an already-applied initial migration. Poop size, consistency, and color remain optional keys inside the existing `details` JSONB and do not require new table columns.
+Because the deployed MVP check constraint predates Hiccups, implementation uses a forward-only migration that replaces the event-type constraint. Poop amount, type, and color remain optional keys inside the existing `details` JSONB and do not require new table columns. Volume preferences and Weight require a separate forward-only migration that adds the parent preference columns, creates `weight_measurements`, applies household-scoped RLS, validates child ownership and future dates, and adds the table to the private Realtime publication. Never edit an already-applied migration.
 
 ## 17. Proposed technical architecture
 
@@ -993,6 +1045,7 @@ Supabase owns:
 - Transactional household creation and invitation claim operations
 - Transactional Sleep and Pump start/stop operations
 - Realtime household updates
+- Household-scoped Weight measurement persistence, validation, RLS, and Realtime updates
 
 Netlify Functions own:
 
@@ -1003,7 +1056,7 @@ Netlify Functions own:
 - Optional future email/push delivery
 - Any future server-only operation that requires the Supabase service-role key
 
-Routine event writes should not pass through a Netlify Function unless later requirements demand centralized server validation beyond RLS and database constraints.
+Routine event and Weight writes should not pass through a Netlify Function unless later requirements demand centralized server validation beyond RLS and database constraints.
 
 ### 17.3 High-level flow
 
@@ -1166,43 +1219,57 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 - A Mother profile sees Pump by default without changing the seven shared action positions.
 - One tap starts Pump and changes the CTA to End pump.
 - One tap ends the session and saves its duration without requiring an amount.
-- Amount, unit, and side can be added after the session is already saved.
-- Pump amount uses the 0–60 ml slider or its converted 0–2.03 fl oz range.
+- Amount and side can be added after the session is already saved; start and end time are prefilled and correctable.
+- Feed and Pump use the same per-parent maximum. Settings can set it from 30–600 ml in 10 ml increments, including 90 ml, with 350 ml as the default.
+- The selected volume unit is global for that parent across Feed/Pump entry, Log, History, Insights, Latest brief, and PDF; Pump does not show a second unit control.
 - Pump history and insights are visible to both parents, and a missing amount is never treated as zero.
 
-### 23.4 Shared use
+### 23.4 Weight
+
+- The Log screen keeps Weight outside the rapid care-action grid and shows the latest value and measured date.
+- A new Weight entry defaults to today's household date, accepts an earlier date, and rejects a future date in both the client and database.
+- The parent chooses Pounds + ounces or Kilograms + grams once in Settings; that preference applies to entry, Log, History, Insights, and PDF.
+- Canonical integer grams preserve the measurement when a parent switches display units.
+- Either parent can view and correct shared measurements; new offline measurements synchronize once without duplication.
+- Weight has its own History filter, Day/Week/Month Insights view, All Actions card, and PDF section, but is excluded from the Latest brief.
+- Insights state factual recorded changes without percentiles or medical interpretation.
+
+### 23.5 Shared use
 
 - Parent A and Parent B can sign in independently with verified Google or email/password accounts.
 - A saved event from one device appears on the other open device without refresh.
+- A saved Weight measurement from one device appears on the other open device without refresh.
 - Events from both parents remain attributed and ordered by occurrence time.
 - Concurrent legitimate events are retained.
 
-### 23.5 Isolation
+### 23.6 Isolation
 
-- A verified account without household membership receives no child, event, summary, or Realtime data.
+- A verified account without household membership receives no child, event, Weight measurement, summary, or Realtime data.
 - A code cannot be claimed by an account whose verified email differs from the invitation email.
 - Expired, used, revoked, guessed, self-claimed, or third-parent codes create no membership.
 - An authenticated test user without membership receives no household, child, event, summary, or Realtime data.
 - Changing a request's household or child ID cannot cross the RLS boundary.
 - Supabase service credentials are absent from browser assets and source maps.
 
-### 23.6 Offline and recovery
+### 23.7 Offline and recovery
 
 - A tap made offline remains visible and marked Offline.
 - Reopening the app with connectivity syncs the same event once.
 - Signing in again allows a blocked queue to retry without changing occurrence time.
 - A failed event is never shown as Saved.
+- A new Weight measurement made offline remains visible, is queued under the current account, and is inserted exactly once after reconnection.
 
-### 23.7 Insights and brief
+### 23.8 Insights and brief
 
-- Each action can be viewed by Day, Week, and Month.
-- All Actions is the default Insights option and shows every action as a separately labeled small multiple rather than an overlaid multi-unit chart.
+- Each care action and Weight can be viewed by Day, Week, and Month.
+- All Actions is the default Insights option and shows all eight actions plus Weight as separately labelled small multiples rather than an overlaid multi-unit chart.
 - On a narrow phone, All Actions cards initially show their headline and graph in a compact state; one card can be expanded at a time to reveal its daily breakdown without leaving the overview.
 - At multi-column breakpoints, one-line and wrapped multi-line headlines do not create staggered graph positions: paired graph frames, axes, and detail actions remain aligned while all summary text stays readable.
 - Previous and Next cycle through complete household Day, Week, or Month periods; Next is disabled for the current period and Today returns from a historical period in one tap.
 - Changing action preserves the selected range and period, while changing range preserves the anchor date.
 - A visible **Back to all actions** control returns from a single-action detail view while preserving the selected range and period and restoring focus to the originating card.
 - Sleep and Pump use duration while discrete actions use frequency; Feed and Pump also show recorded volume where available.
+- Feed/Pump volume and Weight use the current parent's saved units in Insights and the PDF.
 - Download PDF is available for All Actions and every individual action and exports the currently selected Day, Week, or Month.
 - A report uses synchronized shared entries, matches the visible household period and timezone, excludes private account data, and is never exposed through a public file URL.
 - Latest brief covers the most recent household-local 8 PM through now, includes entries from either parent, survives Insights filter changes, omits zero-only categories, and handles daylight-saving transitions.
@@ -1210,7 +1277,7 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 - Re-running the scheduled function does not duplicate the brief.
 - Brief wording stays descriptive and non-medical.
 
-### 23.8 Mobile UX
+### 23.9 Mobile UX
 
 - Primary actions are usable with one hand on the parents' actual iOS and Android phones.
 - The action grid does not shift after a log.
@@ -1220,7 +1287,7 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 
 ## 24. Testing plan
 
-The optional `supabase/scripts/seed-30-day-newborn-ui-data.sql` fixture creates a deterministic, tagged 30-day newborn-like history for visual QA, including varied Poop size/consistency/color observations and Hiccups episodes. Reruns replace only fixture-owned rows and preserve manual events. The fixture is synthetic test data, not medical guidance or a clinical record.
+The optional `supabase/scripts/seed-30-day-newborn-ui-data.sql` fixture creates a deterministic, tagged 30-day newborn-like history for visual QA, including Spotted/Small/Medium/Large Poop observations, Hiccups episodes, and weekly Weight measurements. Reruns replace only fixture-owned rows and preserve manual events and measurements. The fixture is synthetic test data, not medical guidance or a clinical record.
 
 ### 24.1 Automated
 
@@ -1232,9 +1299,11 @@ The optional `supabase/scripts/seed-30-day-newborn-ui-data.sql` fixture creates 
 - Invitation tests for correct claim, wrong email, wrong code, expiry, rotation, reuse, simultaneous claims, rate limits, and third-parent rejection
 - End-to-end tests for log, undo, edit, offline recovery, History, and Insights
 - Component tests for optional Poop segmented controls, accessible color-swatch names/selection, clear behavior, and attention-color guidance
+- Unit and component tests for global volume conversion, shared maximum handling, values above a lowered maximum, and consistent ml/fl oz rendering
+- Unit, component, integration, RLS, Realtime, offline-queue, Insights, and PDF tests for dated Weight measurements and both display-unit choices
 - End-to-end tests for Hiccups one-tap logging, Undo, shared-device synchronization, History, and counts
 - Insights tests for All Actions small multiples, return-from-details focus and filter preservation, compact and expanded mobile cards, single-expanded-card behavior, one-line versus wrapped-headline graph alignment at two-column breakpoints, natural-height single-column cards, action-color labels, period navigation, current-period Next disabling, live-brief filter independence, open-session clipping, empty-state copy, and household-timezone boundaries
-- PDF report tests for All Actions and every individual action, Day/Week/Month boundaries, current-period labeling, cross-household denial, pending-sync handling, private response headers, filenames, and iOS/Android download behavior
+- PDF report tests for All Actions, every individual care action, and Weight, including Day/Week/Month boundaries, current-period labeling, cross-household denial, pending-sync handling, private response headers, filenames, and iOS/Android download behavior
 - Accessibility checks plus manual keyboard and screen-reader review
 
 ### 24.2 Device testing
@@ -1268,7 +1337,7 @@ Test on the actual devices used by both parents, not only emulators:
 - Build login, recovery, Parent A creation, Parent B joining, and resumable onboarding
 - Build fixed seven shared actions, including Hiccups, plus the personalized Pump CTA
 - Implement one-tap events, Sleep/Pump transactions, optimistic UI, Undo, and recent list
-- Add optional post-save Poop size, consistency, and accessible color controls without delaying the first tap
+- Add optional post-save Poop amount, type, and accessible color controls without delaying the first tap
 - Add Realtime updates between parents
 - Verify simultaneous use on both actual devices
 
@@ -1276,6 +1345,7 @@ Test on the actual devices used by both parents, not only emulators:
 
 - Add IndexedDB pending queue and foreground retry
 - Add History filters, edit, and soft delete
+- Add per-parent global volume/weight preferences, the shared Feed/Pump maximum, and dated Weight recording/history
 - Add PWA manifest/app-shell caching and installation guidance
 - Verify refresh, suspension, offline, and session-expiry recovery
 
@@ -1283,6 +1353,7 @@ Test on the actual devices used by both parents, not only emulators:
 
 - Implement aggregation queries and accessible charts
 - Implement All Actions small multiples, single-action detail charts, and Day/Week/Month period navigation
+- Add Weight to All Actions, its dedicated Insights view, and all applicable PDF scopes
 - Implement idempotent Netlify scheduled brief generation
 - Add in-app 8 PM brief and Realtime availability update
 - Validate DST and cross-midnight sleep behavior
@@ -1303,8 +1374,8 @@ This is a planning map, not a request to create these files now.
 ```text
 src/
   components/       action grid, event rows, feedback, chart controls
-  features/         auth, onboarding, invitations, events, sleep, pump, history, insights, briefs
-  lib/              Supabase client, time, validation, IndexedDB queue
+  features/         auth, onboarding, invitations, events, measurements, sleep, pump, history, insights, briefs
+  lib/              Supabase client, units, time, validation, IndexedDB queue
   stores/           session, household, event/sync state
   styles/           four-color tokens and global mobile styles
   App.svelte
@@ -1325,20 +1396,14 @@ static/
   manifest and minimal PWA icons
 ```
 
-## 27. Decisions required before implementation
+## 27. Outstanding launch decisions
 
-These choices can change visible behavior or infrastructure and should be confirmed before code begins:
+The application behavior in this specification is implemented. These remaining choices concern launch configuration or later delivery:
 
 1. **Completed-summary delivery:** keep stored 8 PM summaries in-app only, or add email or web push later?
-2. **Baby profile:** should date of birth remain optional?
-3. **Household timezone:** confirm `America/Chicago` for launch or provide the correct IANA timezone.
-4. **Parent display names:** confirm the short names shown in activity and reports.
-5. **Event correction:** should either parent be able to edit/remove any event, as recommended, or only events they recorded?
-6. **Code length:** keep the requested five characters with the documented protections, or use the recommended six characters?
-7. **Invitation binding:** confirm that Parent A must provide Parent B's email before a code is generated, as recommended.
-8. **Pump visibility:** show Pump only for Mother by default, with a setting to expose it for another parent profile?
-9. **Pump units:** choose milliliters or fluid ounces as the launch default; each parent can change the remembered preference.
-10. **Production email:** choose the SMTP provider used for verification and password-reset email.
+2. **Household timezone:** confirm `America/Chicago` for launch or provide the correct IANA timezone.
+3. **Parent display names:** confirm the short names shown in activity and reports.
+4. **Production email:** confirm the SMTP provider and sender identity used for verification, reset, and invitation email.
 
 ## 28. Official platform references
 

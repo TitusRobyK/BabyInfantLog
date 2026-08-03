@@ -16,20 +16,28 @@
   } from '../lib/insights'
   import { buildLiveBrief } from '../lib/liveBrief'
   import { formatDuration, formatTime, timeOfDayPercent } from '../lib/time'
-  import type { CareEvent, EventType, SleepInterruption } from '../lib/types'
+  import type { CareEvent, EventType, SleepInterruption, VolumeUnit, WeightMeasurement, WeightUnit } from '../lib/types'
+  import { canonicalVolumeMl, formatVolume } from '../lib/volume'
+  import { formatWeight, formatWeightChange } from '../lib/weight'
+  import { buildWeightInsight, type WeightInsight } from '../lib/weightInsights'
 
   export let events: CareEvent[]
+  export let measurements: WeightMeasurement[] = []
   export let interruptions: SleepInterruption[]
   export let timezone: string
+  export let volumeUnit: VolumeUnit = 'ml'
+  export let weightUnit: WeightUnit = 'lb_oz'
   export let online: boolean
   export let pendingCount: number
   export let historyStartDate: string
   export let onSyncPending: () => Promise<number>
 
+  const WEIGHT_CHART_COLOR = '#5B6178'
+
   let action: InsightsAction = 'all'
   let range: InsightsRange = 'day'
   let anchorDate = todayDateKey(timezone)
-  let expandedAction: EventType | null = null
+  let expandedAction: Exclude<InsightsAction, 'all'> | null = null
   let now = new Date()
   let clock: ReturnType<typeof setInterval>
   let reportBusy = false
@@ -44,8 +52,9 @@
 
   $: period = periodFor(range, anchorDate, timezone, now)
   $: actionInsights = ACTIONS.map((meta) => buildActionInsight(meta.type, events, interruptions, period, timezone))
-  $: selectedInsight = action === 'all' ? null : actionInsights.find((insight) => insight.action === action) ?? null
-  $: latestBrief = buildLiveBrief(events, interruptions, timezone, now)
+  $: selectedInsight = action === 'all' || action === 'weight' ? null : actionInsights.find((insight) => insight.action === action) ?? null
+  $: weightInsight = buildWeightInsight(measurements, period)
+  $: latestBrief = buildLiveBrief(events, interruptions, timezone, now, volumeUnit)
   $: previousPeriod = periodFor(range, movePeriodAnchor(range, period.anchorDate, -1), timezone, now)
   $: canMovePrevious = previousPeriod.startKey >= historyStartDate
 
@@ -71,7 +80,7 @@
     expandedAction = null
   }
 
-  async function openActionDetails(nextAction: EventType) {
+  async function openActionDetails(nextAction: Exclude<InsightsAction, 'all'>) {
     chooseAction(nextAction)
     await tick()
     detailHeading?.focus()
@@ -88,7 +97,7 @@
     if (typeof target?.scrollIntoView === 'function') target.scrollIntoView({ block: 'nearest' })
   }
 
-  function toggleExpanded(type: EventType) {
+  function toggleExpanded(type: Exclude<InsightsAction, 'all'>) {
     expandedAction = expandedAction === type ? null : type
   }
 
@@ -105,7 +114,7 @@
         return `${sessions} · ${duration} · longest ${formatDuration(insight.longestMinutes)} · ${insight.interruptions} interruption${insight.interruptions === 1 ? '' : 's'}`
       }
       if (insight.action === 'sleep') return `${sessions} · ${duration} · longest ${formatDuration(insight.longestMinutes)}`
-      if (insight.action === 'pump' && insight.volumeEntries) return `${sessions} · ${duration} · ${Math.round(insight.volumeMl)} ml`
+      if (insight.action === 'pump' && insight.volumeEntries) return `${sessions} · ${duration} · ${formatVolume(insight.volumeMl, volumeUnit)}`
       return `${sessions} · ${duration}`
     }
     const singular = insight.action === 'hiccups' ? 'episode' : 'entry'
@@ -113,7 +122,7 @@
     const base = `${insight.count} ${insight.count === 1 ? singular : plural}`
     const showsGap = ['poop', 'pee', 'feed', 'hiccups'].includes(insight.action)
     const gap = showsGap && insight.medianIntervalMinutes !== null ? ` · typical gap ${formatDuration(insight.medianIntervalMinutes)}` : ''
-    if (insight.action === 'feed' && insight.volumeEntries) return `${base}${gap} · ${Math.round(insight.volumeMl)} ml recorded`
+    if (insight.action === 'feed' && insight.volumeEntries) return `${base}${gap} · ${formatVolume(insight.volumeMl, volumeUnit)} recorded`
     if (insight.action === 'diaper_check') {
       const outcomes = diaperOutcomeSummary(insight)
       return `${base}${outcomes ? ` · ${outcomes}` : ''}`
@@ -136,11 +145,11 @@
     if (!day) return 'No entries'
     if (ACTION_BY_TYPE[insight.action].session) {
       const duration = formatDuration(day.minutes)
-      const volume = insight.action === 'pump' && day.volumeMl ? ` · ${Math.round(day.volumeMl)} ml` : ''
+      const volume = insight.action === 'pump' && day.volumeMl ? ` · ${formatVolume(day.volumeMl, volumeUnit)}` : ''
       return day.count ? `${duration} · ${day.count} ${day.count === 1 ? 'session' : 'sessions'}${volume}` : duration === '0m' ? 'No entries' : duration
     }
     if (!day.count) return 'No entries'
-    const volume = (insight.action === 'feed' || insight.action === 'pump') && day.volumeMl ? ` · ${Math.round(day.volumeMl)} ml` : ''
+    const volume = (insight.action === 'feed' || insight.action === 'pump') && day.volumeMl ? ` · ${formatVolume(day.volumeMl, volumeUnit)}` : ''
     return `${day.count} ${day.count === 1 ? 'entry' : 'entries'}${volume}`
   }
 
@@ -193,12 +202,13 @@
   }
 
   function eventValueLabel(event: CareEvent): string {
+    const amountMl = canonicalVolumeMl(event.details)
     if (ACTION_BY_TYPE[event.event_type].session) {
       const duration = sessionMinutes(event, interruptions, period.start, period.effectiveEnd)
-      const volume = event.event_type === 'pump' && event.details.amount_ml ? ` · ${Math.round(event.details.amount_ml)} ml` : ''
+      const volume = event.event_type === 'pump' && amountMl !== null ? ` · ${formatVolume(amountMl, volumeUnit)}` : ''
       return `${formatDuration(duration)}${volume}`
     }
-    if (event.event_type === 'feed' && event.details.amount_ml) return `${Math.round(event.details.amount_ml)} ml`
+    if (event.event_type === 'feed' && amountMl !== null) return formatVolume(amountMl, volumeUnit)
     if (event.event_type === 'poop' && poopDetailsLabel(event.details)) return poopDetailsLabel(event.details)
     return 'Recorded'
   }
@@ -225,6 +235,40 @@
     if (range === 'day' && ACTION_BY_TYPE[type].session) return `Blocks show when ${actionLabel(type).toLowerCase()} sessions happened. Exact times are listed below.`
     if (range === 'day') return `Dots show when each ${actionLabel(type).toLowerCase()} was logged. Exact times are listed below.`
     return `Each row is one day. Longer bars mean ${ACTION_BY_TYPE[type].session ? 'more total time' : 'more entries'}; the exact value is shown at the right.`
+  }
+
+  function weightHeadline(insight: WeightInsight): string {
+    if (insight.latest) {
+      const change = insight.changeGrams !== null && insight.previous
+        ? ` · ${formatWeightChange(insight.changeGrams, weightUnit)} since ${shortDate(insight.previous.measured_on, false)}`
+        : ''
+      return `${formatWeight(insight.latest.weight_grams, weightUnit)} · ${shortDate(insight.latest.measured_on, false)}${change}`
+    }
+    if (insight.latestBeforePeriod) {
+      return `No weight this period · latest ${formatWeight(insight.latestBeforePeriod.weight_grams, weightUnit)} on ${shortDate(insight.latestBeforePeriod.measured_on, false)}`
+    }
+    return 'No weight recorded'
+  }
+
+  function weightPointX(measurement: WeightMeasurement, insight: WeightInsight): number {
+    if (period.dateKeys.length <= 1) {
+      const matching = insight.measurements.filter((item) => item.measured_on === measurement.measured_on)
+      const index = matching.findIndex((item) => item.id === measurement.id)
+      return matching.length <= 1 ? 50 : 5 + (index / (matching.length - 1)) * 90
+    }
+    const dayIndex = Math.max(0, period.dateKeys.indexOf(measurement.measured_on))
+    return 5 + (dayIndex / (period.dateKeys.length - 1)) * 90
+  }
+
+  function weightPointY(measurement: WeightMeasurement, insight: WeightInsight): number {
+    const values = insight.measurements.map((item) => item.weight_grams)
+    const minimum = Math.min(...values)
+    const maximum = Math.max(...values)
+    return maximum === minimum ? 50 : 87.5 - ((measurement.weight_grams - minimum) / (maximum - minimum)) * 75
+  }
+
+  function weightPoints(insight: WeightInsight): string {
+    return insight.measurements.map((measurement) => `${weightPointX(measurement, insight)},${weightPointY(measurement, insight)}`).join(' ')
   }
 
   async function downloadReport() {
@@ -284,7 +328,8 @@
     <label>Action
       <select value={action} on:change={(event) => chooseAction((event.currentTarget as HTMLSelectElement).value as InsightsAction)}>
         <option value="all">All Actions</option>
-        {#each ACTIONS as meta}<option value={meta.type}>{meta.label}</option>{/each}
+        <optgroup label="Care actions">{#each ACTIONS as meta}<option value={meta.type}>{meta.label}</option>{/each}</optgroup>
+        <optgroup label="Measurements"><option value="weight">Weight</option></optgroup>
       </select>
     </label>
 
@@ -316,7 +361,7 @@
     <section class="at-a-glance" aria-labelledby="glance-title">
       <p class="eyebrow">At a glance</p>
       <h2 id="glance-title">{period.label}</h2>
-      <p>{actionInsights.filter(hasData).length} of {ACTIONS.length} actions have entries in this {range}.</p>
+      <p>{actionInsights.filter(hasData).length + (weightInsight.measurements.length ? 1 : 0)} of {ACTIONS.length + 1} actions and measurements have entries in this {range}.</p>
     </section>
 
     <div class="insights-card-grid">
@@ -378,7 +423,83 @@
           <button class="view-insight-details" type="button" on:click={() => openActionDetails(insight.action)}>View {actionLabel(insight.action).toLowerCase()} details</button>
         </article>
       {/each}
+
+      <article data-insight-action="weight" class:expanded={expandedAction === 'weight'} class="insight-card" style={`--chart-color: ${WEIGHT_CHART_COLOR}`}>
+        <header class:tappable={range !== 'day'} class="insight-card-header">
+          <span class="insight-icon" aria-hidden="true">↗</span>
+          <div><h3>Weight</h3><p>{weightHeadline(weightInsight)}</p></div>
+          {#if range !== 'day'}
+            <button
+              class="card-header-hit"
+              type="button"
+              aria-label={`${expandedAction === 'weight' ? 'Hide' : 'Show'} recorded weights`}
+              aria-expanded={expandedAction === 'weight'}
+              on:click={() => toggleExpanded('weight')}
+            ></button>
+          {/if}
+        </header>
+
+        <div class="weight-mini-chart" role="img" aria-label={`Weight: ${weightHeadline(weightInsight)}`}>
+          {#if weightInsight.measurements.length > 1}
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+              <polyline points={weightPoints(weightInsight)}></polyline>
+            </svg>
+          {:else if !weightInsight.measurements.length}
+            <span class="no-weight-point" aria-hidden="true"></span>
+          {/if}
+          {#each weightInsight.measurements as measurement (measurement.id)}
+            <span class="weight-chart-point" style={`left: ${weightPointX(measurement, weightInsight)}%; top: ${weightPointY(measurement, weightInsight)}%`} aria-hidden="true"></span>
+          {/each}
+        </div>
+
+        {#if range !== 'day'}
+          <button class="breakdown-toggle" type="button" aria-expanded={expandedAction === 'weight'} on:click={() => toggleExpanded('weight')}>
+            {expandedAction === 'weight' ? 'Hide recorded weights' : 'Show recorded weights'}
+            <span aria-hidden="true">{expandedAction === 'weight' ? '⌃' : '⌄'}</span>
+          </button>
+        {/if}
+
+        {#if expandedAction === 'weight' && range !== 'day'}
+          {#if weightInsight.measurements.length}
+            <ul class="compact-breakdown">
+              {#each weightInsight.measurements as measurement (measurement.id)}
+                <li><time datetime={measurement.measured_on}>{shortDate(measurement.measured_on)}</time><strong>{formatWeight(measurement.weight_grams, weightUnit)}</strong></li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="compact-empty">No weight recorded in this period.</p>
+          {/if}
+        {/if}
+
+        <button class="view-insight-details" type="button" on:click={() => openActionDetails('weight')}>View weight details</button>
+      </article>
     </div>
+  {:else if action === 'weight'}
+    <button class="back-to-all-actions" type="button" on:click={returnToAllActions}><span aria-hidden="true">←</span> Back to all actions</button>
+    <section class="metric-summary" aria-labelledby="selected-insight-title">
+      <h2 id="selected-insight-title" class="metric-summary-title" tabindex="-1" bind:this={detailHeading}>Weight · {period.label}</h2>
+      <span>{weightHeadline(weightInsight)}</span>
+    </section>
+
+    <p class="chart-explanation">Points show recorded measurements by date. Exact values are listed below.</p>
+
+    {#if weightInsight.measurements.length}
+      <section class="weight-detail-chart" style={`--chart-color: ${WEIGHT_CHART_COLOR}`} role="img" aria-label={`Weight measurements for ${period.label}. ${weightHeadline(weightInsight)}`}>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {#if weightInsight.measurements.length > 1}<polyline points={weightPoints(weightInsight)}></polyline>{/if}
+        </svg>
+        {#each weightInsight.measurements as measurement (measurement.id)}
+          <span class="weight-chart-point" style={`left: ${weightPointX(measurement, weightInsight)}%; top: ${weightPointY(measurement, weightInsight)}%`} aria-hidden="true"></span>
+        {/each}
+      </section>
+      <ul class="chart-detail-list">
+        {#each weightInsight.measurements as measurement (measurement.id)}
+          <li><time datetime={measurement.measured_on}>{shortDate(measurement.measured_on)}</time><strong>{formatWeight(measurement.weight_grams, weightUnit)}</strong></li>
+        {/each}
+      </ul>
+    {:else}
+      <p class="empty-state">No weight recorded for this {range}.</p>
+    {/if}
   {:else if selectedInsight}
     <button class="back-to-all-actions" type="button" on:click={returnToAllActions}><span aria-hidden="true">←</span> Back to all actions</button>
     <section class="metric-summary" aria-labelledby="selected-insight-title">

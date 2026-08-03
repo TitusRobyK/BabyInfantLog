@@ -136,4 +136,22 @@ describe('buildLiveBrief', () => {
     expect(brief.lines).toEqual([])
     expect(brief.emptyMessage).toBe('No entries since 8 PM yesterday. The brief will update as care is logged.')
   })
+
+  it('formats recorded volumes in the viewing parent’s global unit', () => {
+    const brief = buildLiveBrief([
+      event({ id: 'feed-1', event_type: 'feed', occurred_at: '2026-07-13T21:00:00.000Z', details: { amount_ml: 59.1 } }),
+    ], [], 'UTC', new Date('2026-07-13T22:00:00.000Z'), 'fl_oz')
+    expect(brief.lines).toEqual(['1 feed · 2 fl oz recorded'])
+  })
+
+  it('includes legacy positive volume and treats zero as not recorded', () => {
+    const brief = buildLiveBrief([
+      event({ id: 'feed-legacy', event_type: 'feed', occurred_at: '2026-07-13T21:00:00.000Z', details: { amount: 2, unit: 'fl_oz' } }),
+      event({ id: 'feed-zero', event_type: 'feed', occurred_at: '2026-07-13T22:00:00.000Z', details: { amount_ml: 0 } }),
+    ], [], 'UTC', new Date('2026-07-13T23:00:00.000Z'), 'fl_oz')
+
+    expect(brief.metrics.feed.sessionsWithVolume).toBe(1)
+    expect(brief.metrics.feed.sessionsWithoutVolume).toBe(1)
+    expect(brief.lines).toContain('2 feeds · typical gap 1h · 2 fl oz recorded · 1 feed without an amount')
+  })
 })

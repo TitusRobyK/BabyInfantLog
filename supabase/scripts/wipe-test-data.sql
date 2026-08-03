@@ -6,6 +6,7 @@ begin;
 delete from public.daily_summaries;
 delete from public.sleep_interruptions;
 delete from public.events;
+delete from public.weight_measurements;
 delete from public.invite_attempts;
 delete from public.household_invites;
 delete from public.household_members;

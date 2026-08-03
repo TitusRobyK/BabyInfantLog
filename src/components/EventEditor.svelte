@@ -1,10 +1,18 @@
 <script lang="ts">
   import { POOP_COLORS } from '../lib/actionMeta'
   import type { CareEvent, EventDetails, VolumeUnit } from '../lib/types'
-  import { convertVolume, FEED_MAX_ML, pumpSliderConfig, volumeInMilliliters } from '../lib/volume'
+  import {
+    canonicalVolumeMl,
+    DEFAULT_VOLUME_MAX_ML,
+    formatVolume,
+    volumeEntrySliderConfig,
+    volumeToDisplay,
+    volumeToMilliliters,
+  } from '../lib/volume'
 
   export let event: CareEvent
   export let defaultUnit: VolumeUnit
+  export let volumeMaxMl = DEFAULT_VOLUME_MAX_ML
   export let onClose: () => void
   export let onSave: (event: CareEvent, occurredAt: string, details: EventDetails, endedAt?: string | null) => Promise<void>
   export let onRemove: (event: CareEvent) => Promise<void>
@@ -17,19 +25,19 @@
   let occurredAt = localDateTime(event.occurred_at)
   let endedAt = event.ended_at ? localDateTime(event.ended_at) : ''
   let details: EventDetails = { ...event.details }
-  let unit: VolumeUnit = details.unit ?? defaultUnit
-  let amount = event.event_type === 'feed'
-    ? details.amount_ml ?? 0
-    : details.amount ?? (details.amount_ml ? convertVolume(details.amount_ml, 'ml', unit) : 0)
-  let pumpRange = pumpSliderConfig(unit)
-  let pumpMax = Math.max(pumpRange.max, amount)
+  const storedAmountMl = canonicalVolumeMl(details)
+  let amount = storedAmountMl === null ? 0 : volumeToDisplay(storedAmountMl, defaultUnit)
+  let amountChanged = false
+  $: amountRange = volumeEntrySliderConfig(volumeMaxMl, defaultUnit)
+  $: amountMax = Math.max(amountRange.max, amount)
+  $: abovePreference = storedAmountMl !== null && storedAmountMl > volumeMaxMl
   let busy = false
   let error = ''
 
   $: selectedPoopColor = POOP_COLORS.find((option) => option.value === details.color)
 
   $: amountLabel = amount > 0
-    ? `${unit === 'fl_oz' && event.event_type === 'pump' ? Number(amount.toFixed(2)) : Math.round(amount)} ${event.event_type === 'feed' || unit === 'ml' ? 'ml' : 'fl oz'}`
+    ? formatVolume(volumeToMilliliters(Number(amount), defaultUnit), defaultUnit)
     : 'Not recorded'
 
   async function save() {
@@ -39,19 +47,15 @@
       if (event.event_type === 'pump' && endedAt && new Date(endedAt).getTime() <= new Date(occurredAt).getTime()) {
         throw new Error('End time must be after start time.')
       }
-      if (event.event_type === 'feed' && amount > 0) {
-        details.amount = amount
-        details.unit = 'ml'
-        details.amount_ml = amount
-      } else if (event.event_type === 'feed') {
-        delete details.amount
-        delete details.unit
-        delete details.amount_ml
-      } else if (event.event_type === 'pump' && amount > 0) {
-        details.amount = amount
-        details.unit = unit
-        details.amount_ml = volumeInMilliliters(amount, unit)
-      } else if (event.event_type === 'pump') {
+      if ((event.event_type === 'feed' || event.event_type === 'pump') && amount > 0) {
+        if (amountChanged || storedAmountMl === null) {
+          details.amount = Number(amount)
+          details.unit = defaultUnit
+          details.amount_ml = volumeToMilliliters(Number(amount), defaultUnit)
+        } else {
+          details.amount_ml = storedAmountMl
+        }
+      } else if (event.event_type === 'feed' || event.event_type === 'pump') {
         delete details.amount
         delete details.unit
         delete details.amount_ml
@@ -73,14 +77,6 @@
   async function saveWithoutAmount() {
     amount = 0
     await save()
-  }
-
-  function changePumpUnit(nextUnit: VolumeUnit) {
-    if (nextUnit === unit) return
-    amount = convertVolume(amount, unit, nextUnit)
-    unit = nextUnit
-    pumpRange = pumpSliderConfig(unit)
-    pumpMax = Math.max(pumpRange.max, amount)
   }
 
   function clearPoopDetail(key: 'size' | 'consistency' | 'color') {
@@ -120,27 +116,29 @@
       {/if}
 
       {#if event.event_type === 'poop'}
-        <fieldset class="detail-choice detail-choice-three">
-          <legend class="visually-hidden">Size</legend>
+        <fieldset class="detail-choice detail-choice-four">
+          <legend class="visually-hidden">Amount</legend>
           <div class="detail-choice-heading">
-            <span>Size</span>
+            <span>Amount</span>
             {#if details.size}<button class="clear-selection" type="button" on:click={() => clearPoopDetail('size')}>Clear selection</button>{/if}
           </div>
           <div class="detail-segmented">
+            <label><input type="radio" name="poop-size" value="spotted" bind:group={details.size} /><span>Spotted</span></label>
             <label><input type="radio" name="poop-size" value="small" bind:group={details.size} /><span>Small</span></label>
             <label><input type="radio" name="poop-size" value="medium" bind:group={details.size} /><span>Medium</span></label>
             <label><input type="radio" name="poop-size" value="large" bind:group={details.size} /><span>Large</span></label>
           </div>
+          <p class="hint">Spotted means only a trace or smear.</p>
         </fieldset>
 
         <fieldset class="detail-choice">
-          <legend class="visually-hidden">Consistency</legend>
+          <legend class="visually-hidden">Type</legend>
           <div class="detail-choice-heading">
-            <span>Consistency</span>
+            <span>Type</span>
             {#if details.consistency}<button class="clear-selection" type="button" on:click={() => clearPoopDetail('consistency')}>Clear selection</button>{/if}
           </div>
           <div class="detail-segmented">
-            <label><input type="radio" name="poop-consistency" value="formed" bind:group={details.consistency} /><span>Formed</span></label>
+            <label><input type="radio" name="poop-consistency" value="formed" bind:group={details.consistency} /><span>Solid</span></label>
             <label><input type="radio" name="poop-consistency" value="liquid" bind:group={details.consistency} /><span>Liquid</span></label>
           </div>
         </fieldset>
@@ -172,21 +170,16 @@
         <label>Milk type <select bind:value={details.feed_type}><option value={undefined}>Not recorded</option><option value="breast_milk">Breast milk</option><option value="formula">Formula</option><option value="mixed">Mixed</option></select></label>
         <div class="amount-field">
           <div class="amount-heading"><label for="feed-amount">Amount consumed <span class="optional">Optional</span></label><output for="feed-amount">{amountLabel}</output></div>
-          <input id="feed-amount" class="amount-slider" bind:value={amount} type="range" min="0" max={FEED_MAX_ML} step="1" aria-valuetext={amountLabel} />
-          <div class="amount-scale" aria-hidden="true"><span>Not recorded</span><span>{FEED_MAX_ML} ml</span></div>
+          <input id="feed-amount" class="amount-slider" bind:value={amount} on:input={() => (amountChanged = true)} type="range" min="0" max={amountMax} step={amountRange.step} aria-valuetext={amountLabel} />
+          <div class="amount-scale" aria-hidden="true"><span>Not recorded</span><span>{formatVolume(volumeToMilliliters(amountMax, defaultUnit), defaultUnit)}</span></div>
+          {#if abovePreference}<p class="hint">This entry is above your current slider maximum.</p>{/if}
         </div>
       {:else if event.event_type === 'pump'}
-        <fieldset class="unit-choice">
-          <legend>Unit</legend>
-          <div class="unit-segmented">
-            <label><input type="radio" name="pump-unit" value="ml" checked={unit === 'ml'} on:change={() => changePumpUnit('ml')} /><span>ml</span></label>
-            <label><input type="radio" name="pump-unit" value="fl_oz" checked={unit === 'fl_oz'} on:change={() => changePumpUnit('fl_oz')} /><span>fl oz</span></label>
-          </div>
-        </fieldset>
         <div class="amount-field">
           <div class="amount-heading"><label for="pump-amount">Amount pumped <span class="optional">Optional</span></label><output for="pump-amount">{amountLabel}</output></div>
-          <input id="pump-amount" class="amount-slider" bind:value={amount} type="range" min="0" max={pumpMax} step={pumpRange.step} aria-valuetext={amountLabel} />
-          <div class="amount-scale" aria-hidden="true"><span>Not recorded</span><span>{pumpMax} {unit === 'ml' ? 'ml' : 'fl oz'}</span></div>
+          <input id="pump-amount" class="amount-slider" bind:value={amount} on:input={() => (amountChanged = true)} type="range" min="0" max={amountMax} step={amountRange.step} aria-valuetext={amountLabel} />
+          <div class="amount-scale" aria-hidden="true"><span>Not recorded</span><span>{formatVolume(volumeToMilliliters(amountMax, defaultUnit), defaultUnit)}</span></div>
+          {#if abovePreference}<p class="hint">This entry is above your current slider maximum.</p>{/if}
         </div>
         <label>Side <select bind:value={details.side}><option value={undefined}>Not recorded</option><option value="left">Left</option><option value="right">Right</option><option value="both">Both</option></select></label>
       {/if}

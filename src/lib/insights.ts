@@ -1,8 +1,9 @@
 import { ACTION_BY_TYPE } from './actionMeta'
 import { durationMinutes, netSleepMinutes } from './time'
 import type { CareEvent, EventType, SleepInterruption } from './types'
+import { canonicalVolumeMl } from './volume'
 
-export type InsightsAction = 'all' | EventType
+export type InsightsAction = 'all' | EventType | 'weight'
 export type InsightsRange = 'day' | 'week' | 'month'
 
 export interface InsightsPeriod {
@@ -127,7 +128,7 @@ export function buildActionInsight(
     .filter((event) => session ? overlaps(event, period.start, period.effectiveEnd) : startsWithin(event, period.start, period.effectiveEnd))
     .sort((a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime())
   const started = matching.filter((event) => startsWithin(event, period.start, period.effectiveEnd))
-  const amountEvents = started.filter((event) => typeof event.details.amount_ml === 'number')
+  const amountEvents = started.filter((event) => canonicalVolumeMl(event.details) !== null)
   const sleepInterruptions = action === 'sleep'
     ? interruptions.filter((interruption) => !interruption.deleted_at && matching.some((event) => event.id === interruption.sleep_event_id))
     : []
@@ -245,7 +246,7 @@ function intervalOverlaps(startValue: string, endValue: string | null, start: Da
 }
 
 function numericAmount(event: CareEvent): number {
-  return typeof event.details.amount_ml === 'number' ? event.details.amount_ml : 0
+  return canonicalVolumeMl(event.details) ?? 0
 }
 
 function medianInterval(events: CareEvent[]): number | null {

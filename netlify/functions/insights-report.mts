@@ -2,7 +2,8 @@ import type { Config } from '@netlify/functions'
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js'
 import { ACTIONS, ACTION_BY_TYPE } from '../../src/lib/actionMeta'
 import { buildActionInsight, periodFor, type InsightsAction, type InsightsRange } from '../../src/lib/insights'
-import type { CareEvent, EventType, SleepInterruption } from '../../src/lib/types'
+import type { CareEvent, EventType, SleepInterruption, VolumeUnit, WeightMeasurement, WeightUnit } from '../../src/lib/types'
+import { buildWeightInsight } from '../../src/lib/weightInsights'
 import { buildInsightsPdf } from '../lib/insightsPdf'
 
 interface ReportBody {
@@ -11,7 +12,7 @@ interface ReportBody {
   anchorDate?: string
 }
 
-const actionValues = new Set<InsightsAction>(['all', ...ACTIONS.map((action) => action.type)])
+const actionValues = new Set<InsightsAction>(['all', ...ACTIONS.map((action) => action.type), 'weight'])
 const rangeValues = new Set<InsightsRange>(['day', 'week', 'month'])
 const pageSize = 1000
 const maximumRows = 12_000
@@ -76,7 +77,7 @@ async function fetchEvents(
   client: SupabaseClient,
   householdId: string,
   childId: string,
-  action: InsightsAction,
+  action: Exclude<InsightsAction, 'weight'>,
   start: Date,
   end: Date,
 ): Promise<CareEvent[]> {
@@ -116,6 +117,38 @@ async function fetchEvents(
   }
 
   return rows.sort((a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime())
+}
+
+async function fetchWeights(
+  client: SupabaseClient,
+  householdId: string,
+  childId: string,
+  startKey: string,
+  endKeyExclusive: string,
+): Promise<WeightMeasurement[]> {
+  const current = await paged<WeightMeasurement>((from, to) => client
+    .from('weight_measurements')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('child_id', childId)
+    .is('deleted_at', null)
+    .gte('measured_on', startKey)
+    .lt('measured_on', endKeyExclusive)
+    .order('measured_on', { ascending: true })
+    .order('recorded_at', { ascending: true })
+    .range(from, to))
+  const { data: previous, error } = await client
+    .from('weight_measurements')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('child_id', childId)
+    .is('deleted_at', null)
+    .lt('measured_on', startKey)
+    .order('measured_on', { ascending: false })
+    .order('recorded_at', { ascending: false })
+    .limit(1)
+  if (error) throw new Error('Report weight query failed.')
+  return [...(previous ?? []), ...current] as WeightMeasurement[]
 }
 
 async function fetchInterruptions(
@@ -167,11 +200,16 @@ export default async (request: Request): Promise<Response> => {
     if (membershipError) throw new Error('Membership query failed.')
     if (!membership) return json({ error: 'Finish joining a family before downloading a report.' }, 403)
 
-    const [{ data: household, error: householdError }, { data: child, error: childError }] = await Promise.all([
+    const [
+      { data: household, error: householdError },
+      { data: child, error: childError },
+      { data: profile, error: profileError },
+    ] = await Promise.all([
       client.from('households').select('id, timezone').eq('id', membership.household_id).single(),
       client.from('children').select('id, nickname').eq('household_id', membership.household_id).eq('active', true).single(),
+      client.from('parent_profiles').select('volume_unit, weight_unit').eq('user_id', user.id).single(),
     ])
-    if (householdError || childError || !household || !child) return json({ error: 'The family report is not available.' }, 403)
+    if (householdError || childError || profileError || !household || !child || !profile) return json({ error: 'The family report is not available.' }, 403)
 
     const generatedAt = new Date()
     let period
@@ -182,13 +220,23 @@ export default async (request: Request): Promise<Response> => {
     }
     if (period.isFuture) return json({ error: 'Future reports are not available.' }, 400)
 
-    const events = await fetchEvents(client, household.id, child.id, body.action, period.start, period.effectiveEnd)
+    const events = body.action === 'weight'
+      ? []
+      : await fetchEvents(client, household.id, child.id, body.action, period.start, period.effectiveEnd)
     const needsInterruptions = body.action === 'all' || body.action === 'sleep'
     const interruptions = needsInterruptions
       ? await fetchInterruptions(client, household.id, child.id, period.start, period.effectiveEnd)
       : []
-    const requestedTypes: EventType[] = body.action === 'all' ? ACTIONS.map((item) => item.type) : [body.action]
+    const requestedTypes: EventType[] = body.action === 'all'
+      ? ACTIONS.map((item) => item.type)
+      : body.action === 'weight' ? [] : [body.action]
     const insights = requestedTypes.map((type) => buildActionInsight(type, events, interruptions, period, household.timezone))
+    const weightRows = body.action === 'all' || body.action === 'weight'
+      ? await fetchWeights(client, household.id, child.id, period.startKey, period.endKeyExclusive)
+      : []
+    const weightInsight = body.action === 'all' || body.action === 'weight'
+      ? buildWeightInsight(weightRows, period)
+      : undefined
     const bytes = await buildInsightsPdf({
       babyName: child.nickname,
       timezone: household.timezone,
@@ -197,6 +245,9 @@ export default async (request: Request): Promise<Response> => {
       generatedAt,
       insights,
       interruptions,
+      volumeUnit: profile.volume_unit as VolumeUnit,
+      weightUnit: profile.weight_unit as WeightUnit,
+      weightInsight,
     })
 
     return new Response(bytes as BodyInit, {

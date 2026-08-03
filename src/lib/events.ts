@@ -206,6 +206,9 @@ export async function flushPending(userId: string): Promise<{ completed: number;
     if (operation.kind === 'insert_event') {
       const result = await supabase.from('events').upsert(operation.payload, { onConflict: 'id', ignoreDuplicates: true })
       error = result.error
+    } else if (operation.kind === 'insert_weight_measurement') {
+      const result = await supabase.from('weight_measurements').upsert(operation.payload, { onConflict: 'id', ignoreDuplicates: true })
+      error = result.error
     } else if (operation.kind === 'session_state') {
       const result = await supabase.rpc('set_session_state', operation.payload)
       error = result.error

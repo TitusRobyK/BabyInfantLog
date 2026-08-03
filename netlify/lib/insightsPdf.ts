@@ -2,7 +2,10 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf
 import { ACTIONS, ACTION_BY_TYPE, actionLabel, poopDetailsLabel } from '../../src/lib/actionMeta'
 import { dailyInsightValue, sessionMinutes, type ActionInsight, type InsightsAction, type InsightsPeriod } from '../../src/lib/insights'
 import { formatDuration } from '../../src/lib/time'
-import type { CareEvent, SleepInterruption } from '../../src/lib/types'
+import type { CareEvent, SleepInterruption, VolumeUnit, WeightUnit } from '../../src/lib/types'
+import { canonicalVolumeMl, formatVolume } from '../../src/lib/volume'
+import { formatWeight, formatWeightChange } from '../../src/lib/weight'
+import type { WeightInsight } from '../../src/lib/weightInsights'
 
 export interface InsightsPdfInput {
   babyName: string
@@ -12,6 +15,9 @@ export interface InsightsPdfInput {
   generatedAt: Date
   insights: ActionInsight[]
   interruptions: SleepInterruption[]
+  volumeUnit?: VolumeUnit
+  weightUnit?: WeightUnit
+  weightInsight?: WeightInsight
 }
 
 const PAGE_WIDTH = 612
@@ -36,6 +42,8 @@ export async function buildInsightsPdf(input: InsightsPdfInput): Promise<Uint8Ar
   const regular = await document.embedFont(StandardFonts.Helvetica)
   const bold = await document.embedFont(StandardFonts.HelveticaBold)
   const visibleBabyName = clean(input.babyName).trim() || 'Baby'
+  const volumeUnit = input.volumeUnit ?? 'ml'
+  const weightUnit = input.weightUnit ?? 'lb_oz'
   document.setTitle(`${input.babyName} Insights`)
   document.setAuthor('Baby Log')
   document.setSubject(`${input.period.range} infant care report`)
@@ -88,6 +96,7 @@ export async function buildInsightsPdf(input: InsightsPdfInput): Promise<Uint8Ar
   drawLine(`${visibleBabyName}'s Insights`, { size: 23, font: bold, gap: 2 })
   drawLine(scopeLabel(input), { size: 11, font: bold, gap: 2 })
   drawLine(`Household timezone: ${input.timezone}`, { size: 9, color: MUTED, gap: 1 })
+  drawLine(`Display units: ${volumeUnit === 'ml' ? 'ml' : 'fl oz'} for feeding; ${weightUnit === 'lb_oz' ? 'lb + oz' : 'kg + g'} for weight`, { size: 9, color: MUTED, gap: 1 })
   drawLine(`Generated ${formatTimestamp(input.generatedAt, input.timezone)}${input.period.isCurrent ? ' - current period through this time' : ''}`, { size: 9, color: MUTED, gap: 14 })
 
   page.drawLine({ start: { x: MARGIN, y }, end: { x: PAGE_WIDTH - MARGIN, y }, thickness: 1.2, color: INK })
@@ -95,13 +104,15 @@ export async function buildInsightsPdf(input: InsightsPdfInput): Promise<Uint8Ar
 
   if (input.action === 'all') {
     drawLine('At a glance', { size: 15, font: bold, gap: 6 })
-    const populated = input.insights.filter((insight) => insight.events.length).length
-    drawLine(`${populated} of ${ACTIONS.length} actions have entries in this ${input.period.range}.`, { size: 10, gap: 10 })
+    const populated = input.insights.filter((insight) => insight.events.length).length + (input.weightInsight?.measurements.length ? 1 : 0)
+    const total = ACTIONS.length + (input.weightInsight ? 1 : 0)
+    drawLine(`${populated} of ${total} actions and measurements have entries in this ${input.period.range}.`, { size: 10, gap: 10 })
   }
 
   for (const insight of input.insights) {
     drawActionSection(insight)
   }
+  if (input.weightInsight) drawWeightSection(input.weightInsight)
 
   const pages = document.getPages()
   pages.forEach((pdfPage, index) => {
@@ -136,7 +147,7 @@ export async function buildInsightsPdf(input: InsightsPdfInput): Promise<Uint8Ar
       return
     }
 
-    drawLine(headline(insight), { size: 10, font: bold, gap: 4 })
+    drawLine(headline(insight, volumeUnit), { size: 10, font: bold, gap: 4 })
     const caveat = volumeCaveat(insight)
     if (caveat) drawLine(caveat, { size: 8.5, color: MUTED, gap: 6 })
 
@@ -159,7 +170,7 @@ export async function buildInsightsPdf(input: InsightsPdfInput): Promise<Uint8Ar
     const firstRowHeight = rows.length ? tableRowLayout(rows[0][0], rows[0][1]).height : 0
     return Math.ceil(
       titleHeight
-      + wrappedLineHeight(headline(insight), bold, 10, 4)
+      + wrappedLineHeight(headline(insight, volumeUnit), bold, 10, 4)
       + (caveat ? wrappedLineHeight(caveat, regular, 8.5, 6) : 0)
       + chartHeight
       + 21
@@ -246,6 +257,66 @@ export async function buildInsightsPdf(input: InsightsPdfInput): Promise<Uint8Ar
     }
   }
 
+  function drawWeightSection(insight: WeightInsight) {
+    const color = hexColor('#5B6178')
+
+    if (!insight.measurements.length) {
+      const latest = insight.latestBeforePeriod
+        ? ` Latest before this period: ${formatWeight(insight.latestBeforePeriod.weight_grams, weightUnit)} on ${formatDateKey(insight.latestBeforePeriod.measured_on)}.`
+        : ''
+      const emptyMessage = `No weight recorded for this ${input.period.range}.${latest}`
+      ensureSpace(22 + wrappedLineHeight(emptyMessage, regular, 9.5, 14))
+      drawActionTitle('Weight', color)
+      drawLine(emptyMessage, { size: 9.5, color: MUTED, gap: 14 })
+      return
+    }
+
+    const latest = insight.latest!
+    const change = insight.changeGrams !== null && insight.previous
+      ? `; ${formatWeightChange(insight.changeGrams, weightUnit)} since ${formatDateKey(insight.previous.measured_on)}`
+      : ''
+    const summary = `${formatWeight(latest.weight_grams, weightUnit)} on ${formatDateKey(latest.measured_on)}${change}`
+    ensureSpace(22 + wrappedLineHeight(summary, bold, 10, 6) + 86)
+    drawActionTitle('Weight', color)
+    drawLine(summary, { size: 10, font: bold, gap: 6 })
+    drawWeightChart(insight, color)
+    drawTableHeader('Date measured', 'Weight')
+    for (const measurement of insight.measurements) {
+      const layout = tableRowLayout(formatDateKey(measurement.measured_on), formatWeight(measurement.weight_grams, weightUnit))
+      if (!hasSpace(layout.height)) {
+        newPage()
+        drawActionTitle('Weight', color, true)
+        drawTableHeader('Date measured', 'Weight')
+      }
+      drawTableRow(layout)
+    }
+    y -= 16
+  }
+
+  function drawWeightChart(insight: WeightInsight, color: ReturnType<typeof rgb>) {
+    ensureSpace(86)
+    const chartHeight = 56
+    const chartY = y - chartHeight
+    const values = insight.measurements.map((measurement) => measurement.weight_grams)
+    const minimum = Math.min(...values)
+    const maximum = Math.max(...values)
+    const points = insight.measurements.map((measurement, index) => {
+      const dayIndex = Math.max(0, input.period.dateKeys.indexOf(measurement.measured_on))
+      const x = input.period.dateKeys.length > 1
+        ? MARGIN + CONTENT_WIDTH * (dayIndex / (input.period.dateKeys.length - 1))
+        : MARGIN + CONTENT_WIDTH * (insight.measurements.length > 1 ? index / (insight.measurements.length - 1) : 0.5)
+      const fraction = maximum === minimum ? 0.5 : (measurement.weight_grams - minimum) / (maximum - minimum)
+      return { x: clamp(x, MARGIN + 3.5, PAGE_WIDTH - MARGIN - 3.5), y: chartY + 8 + fraction * (chartHeight - 16) }
+    })
+
+    page.drawRectangle({ x: MARGIN, y: chartY, width: CONTENT_WIDTH, height: chartHeight, borderWidth: 0.7, borderColor: LIGHT_LINE })
+    for (let index = 1; index < points.length; index += 1) {
+      page.drawLine({ start: points[index - 1], end: points[index], thickness: 1.5, color })
+    }
+    for (const point of points) page.drawCircle({ ...point, size: 3.5, color })
+    y = chartY - 16
+  }
+
   function drawTableHeader(left: string, right: string) {
     ensureSpace(24)
     page.drawText(left, { x: MARGIN, y, size: 8, font: bold, color: MUTED })
@@ -287,12 +358,13 @@ export async function buildInsightsPdf(input: InsightsPdfInput): Promise<Uint8Ar
   }
 
   function eventValue(event: CareEvent): string {
+    const amountMl = canonicalVolumeMl(event.details)
     if (ACTION_BY_TYPE[event.event_type].session) {
       const minutes = sessionMinutes(event, input.interruptions, input.period.start, input.period.effectiveEnd)
-      const amount = event.event_type === 'pump' && event.details.amount_ml ? `; ${Math.round(event.details.amount_ml)} ml` : ''
+      const amount = event.event_type === 'pump' && amountMl !== null ? `; ${formatVolume(amountMl, volumeUnit)}` : ''
       return `${formatDuration(minutes)}${amount}`
     }
-    if (event.event_type === 'feed' && event.details.amount_ml) return `${Math.round(event.details.amount_ml)} ml`
+    if (event.event_type === 'feed' && amountMl !== null) return formatVolume(amountMl, volumeUnit)
     if (event.event_type === 'poop') return poopDetailsLabel(event.details) || 'Recorded'
     return 'Recorded'
   }
@@ -303,26 +375,26 @@ export async function buildInsightsPdf(input: InsightsPdfInput): Promise<Uint8Ar
     if (ACTION_BY_TYPE[insight.action].session) {
       const count = `${day.count} ${day.count === 1 ? 'session' : 'sessions'}`
       const interruptions = insight.action === 'sleep' && day.interruptions ? `; ${day.interruptions} interruptions` : ''
-      const volume = insight.action === 'pump' && day.volumeMl ? `; ${Math.round(day.volumeMl)} ml` : ''
+      const volume = insight.action === 'pump' && day.volumeMl ? `; ${formatVolume(day.volumeMl, volumeUnit)}` : ''
       return `${formatDuration(day.minutes)}; ${count}${volume}${interruptions}`
     }
-    const volume = (insight.action === 'feed' || insight.action === 'pump') && day.volumeMl ? `; ${Math.round(day.volumeMl)} ml` : ''
+    const volume = (insight.action === 'feed' || insight.action === 'pump') && day.volumeMl ? `; ${formatVolume(day.volumeMl, volumeUnit)}` : ''
     return day.count ? `${day.count} ${day.count === 1 ? 'entry' : 'entries'}${volume}` : 'No entries'
   }
 }
 
 function scopeLabel(input: InsightsPdfInput): string {
-  const action = input.action === 'all' ? 'All Actions' : actionLabel(input.action)
+  const action = input.action === 'all' ? 'All Actions' : input.action === 'weight' ? 'Weight' : actionLabel(input.action)
   return `${action} - ${input.period.label}`
 }
 
-function headline(insight: ActionInsight): string {
+function headline(insight: ActionInsight, volumeUnit: VolumeUnit): string {
   if (!insight.events.length) return 'No entries'
   if (ACTION_BY_TYPE[insight.action].session) {
     let result = `${insight.count} ${insight.count === 1 ? 'session' : 'sessions'}; ${formatDuration(insight.minutes)}`
     if (insight.action === 'sleep') result += `; longest ${formatDuration(insight.longestMinutes)}`
     if (insight.action === 'sleep' && insight.interruptions) result += `; ${insight.interruptions} interruption${insight.interruptions === 1 ? '' : 's'}`
-    if (insight.action === 'pump' && insight.volumeEntries) result += `; ${Math.round(insight.volumeMl)} ml recorded`
+    if (insight.action === 'pump' && insight.volumeEntries) result += `; ${formatVolume(insight.volumeMl, volumeUnit)} recorded`
     return result
   }
   const singular = insight.action === 'hiccups' ? 'episode' : 'entry'
@@ -331,7 +403,7 @@ function headline(insight: ActionInsight): string {
   if (['poop', 'pee', 'feed', 'hiccups'].includes(insight.action) && insight.medianIntervalMinutes !== null) {
     result += `; typical gap ${formatDuration(insight.medianIntervalMinutes)}`
   }
-  if (insight.action === 'feed' && insight.volumeEntries) result += `; ${Math.round(insight.volumeMl)} ml recorded`
+  if (insight.action === 'feed' && insight.volumeEntries) result += `; ${formatVolume(insight.volumeMl, volumeUnit)} recorded`
   if (insight.action === 'diaper_check') {
     const outcomes = diaperOutcomeSummary(insight)
     if (outcomes) result += `; ${outcomes}`

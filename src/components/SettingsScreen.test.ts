@@ -1,4 +1,4 @@
-import { mount, unmount } from 'svelte'
+import { mount, tick, unmount } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import SettingsScreen from './SettingsScreen.svelte'
 import type { AppContext } from '../lib/types'
@@ -12,7 +12,7 @@ afterEach(async () => {
 })
 
 describe('Settings volume preference', () => {
-  it('presents milliliters and fluid ounces as an accessible radio choice', () => {
+  it('presents global volume and weight preferences with one shared maximum', async () => {
     const context: AppContext = {
       profile: {
         user_id: 'parent-1',
@@ -20,6 +20,8 @@ describe('Settings volume preference', () => {
         parent_type: 'mother',
         show_pump_action: true,
         volume_unit: 'ml',
+        volume_slider_max_ml: 350,
+        weight_unit: 'lb_oz',
         created_at: '2026-07-12T12:00:00.000Z',
         updated_at: '2026-07-12T12:00:00.000Z',
       },
@@ -52,5 +54,42 @@ describe('Settings volume preference', () => {
     expect(options[0]?.value).toBe('ml')
     expect(options[0]?.checked).toBe(true)
     expect(options[1]?.value).toBe('fl_oz')
+
+    const savePreferences = document.querySelector<HTMLButtonElement>('button.settings-save')
+    expect(savePreferences?.disabled).toBe(true)
+
+    const maximum = document.querySelector<HTMLInputElement>('#volume-slider-maximum')
+    expect(maximum?.min).toBe('30')
+    expect(maximum?.max).toBe('600')
+    expect(maximum?.step).toBe('10')
+    expect(maximum?.value).toBe('350')
+
+    const helpButton = document.querySelector<HTMLButtonElement>('.help-tooltip-trigger')
+    expect(helpButton?.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('.settings-amount-field > .hint')).toBeNull()
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('Used for both Feed and Pump. Existing entries won’t change.')
+    helpButton?.click()
+    await tick()
+    expect(helpButton?.getAttribute('aria-expanded')).toBe('true')
+
+    options[1]?.click()
+    await tick()
+    expect(document.querySelector<HTMLOutputElement>('output[for="volume-slider-maximum"]')?.textContent).toBe('11.8 fl oz')
+    expect(savePreferences?.disabled).toBe(false)
+
+    options[0]?.click()
+    await tick()
+    expect(savePreferences?.disabled).toBe(true)
+
+    if (maximum) {
+      maximum.value = '90'
+      maximum.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    await tick()
+    expect(savePreferences?.disabled).toBe(false)
+
+    const weightOptions = document.querySelectorAll<HTMLInputElement>('input[name="preferred-weight-unit"]')
+    expect([...weightOptions].map((option) => option.value)).toEqual(['lb_oz', 'kg_g'])
+    expect(weightOptions[0]?.checked).toBe(true)
   })
 })

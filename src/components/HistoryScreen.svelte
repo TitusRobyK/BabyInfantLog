@@ -1,16 +1,20 @@
 <script lang="ts">
   import { actionLabel, poopDetailsLabel } from '../lib/actionMeta'
   import { formatDate, formatDuration, formatTime, localDateKey, durationMinutes, netSleepMinutes } from '../lib/time'
-  import type { CareEvent, EventType, HouseholdMember, ParentProfile, SleepInterruption } from '../lib/types'
+  import type { CareEvent, EventType, HouseholdMember, ParentProfile, SleepInterruption, WeightMeasurement } from '../lib/types'
+  import { canonicalVolumeMl, formatVolume } from '../lib/volume'
+  import { formatWeight } from '../lib/weight'
 
   export let events: CareEvent[]
+  export let measurements: WeightMeasurement[] = []
   export let interruptions: SleepInterruption[]
   export let timezone: string
   export let profile: ParentProfile
   export let members: HouseholdMember[]
   export let onEdit: (event: CareEvent) => void
+  export let onEditWeight: (measurement: WeightMeasurement) => void = () => undefined
 
-  let filter: 'all' | EventType = 'all'
+  let filter: 'all' | EventType | 'weight' = 'all'
   let selectedDate = localDateKey(new Date().toISOString(), timezone)
   const today = localDateKey(new Date().toISOString(), timezone)
 
@@ -18,7 +22,14 @@
     (event) =>
       !event.deleted_at &&
       localDateKey(event.occurred_at, timezone) === selectedDate &&
+      filter !== 'weight' &&
       (filter === 'all' || event.event_type === filter),
+  )
+  $: filteredWeights = measurements.filter(
+    (measurement) =>
+      !measurement.deleted_at &&
+      measurement.measured_on === selectedDate &&
+      (filter === 'all' || filter === 'weight'),
   )
 
   function moveDate(days: number) {
@@ -34,6 +45,11 @@
 
   function interruptionCount(eventId: string) {
     return interruptions.filter((interruption) => interruption.sleep_event_id === eventId && !interruption.deleted_at).length
+  }
+
+  function volumeLabel(event: CareEvent): string {
+    const amountMl = canonicalVolumeMl(event.details)
+    return amountMl === null ? '' : formatVolume(amountMl, profile.volume_unit)
   }
 </script>
 
@@ -51,16 +67,41 @@
   <label class="filter-label">Action
     <select bind:value={filter}>
       <option value="all">All</option>
-      <option value="poop">Poop</option>
-      <option value="pee">Pee</option>
-      <option value="feed">Feed</option>
-      <option value="burp">Burp</option>
-      <option value="sleep">Sleep</option>
-      <option value="diaper_check">Diaper check</option>
-      <option value="hiccups">Hiccups</option>
-      <option value="pump">Pump</option>
+      <optgroup label="Care actions">
+        <option value="poop">Poop</option>
+        <option value="pee">Pee</option>
+        <option value="feed">Feed</option>
+        <option value="burp">Burp</option>
+        <option value="sleep">Sleep</option>
+        <option value="diaper_check">Diaper check</option>
+        <option value="hiccups">Hiccups</option>
+        <option value="pump">Pump</option>
+      </optgroup>
+      <optgroup label="Measurements"><option value="weight">Weight</option></optgroup>
     </select>
   </label>
+
+  {#if filteredWeights.length}
+    <section class="history-measurements" aria-labelledby="history-measurements-title">
+      <h2 id="history-measurements-title">Measurements</h2>
+      <ul class="event-list history-list">
+        {#each filteredWeights as measurement (measurement.id)}
+          <li>
+            <button class="event-row" type="button" on:click={() => onEditWeight(measurement)}>
+              <span class="event-main">
+                <strong>Weight</strong>
+                <small>{actorName(measurement.created_by)}{measurement.updated_at !== measurement.recorded_at ? ' · Edited' : ''}</small>
+              </span>
+              <span class="event-meta">
+                <strong>{formatWeight(measurement.weight_grams, profile.weight_unit)}</strong>
+                {#if measurement.sync_status === 'offline'}<small>Waiting to sync</small>{/if}
+              </span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 
   {#if filtered.length}
     <ul class="event-list history-list">
@@ -75,10 +116,12 @@
               <time datetime={event.occurred_at}>{formatTime(event.occurred_at, timezone)}</time>
               {#if event.event_type === 'sleep' && event.ended_at}
                 <small>{formatDuration(netSleepMinutes(event, interruptions))}{interruptionCount(event.id) ? ` · ${interruptionCount(event.id)} interruption${interruptionCount(event.id) === 1 ? '' : 's'}` : ''}</small>
+              {:else if event.event_type === 'pump' && event.ended_at}
+                <small>{formatDuration(durationMinutes(event.occurred_at, event.ended_at))}{volumeLabel(event) ? ` · ${volumeLabel(event)}` : ''}</small>
               {:else if event.ended_at}
                 <small>{formatDuration(durationMinutes(event.occurred_at, event.ended_at))}</small>
-              {:else if event.event_type === 'feed' && event.details.amount_ml}
-                <small>{event.details.amount_ml} ml</small>
+              {:else if event.event_type === 'feed' && volumeLabel(event)}
+                <small>{volumeLabel(event)}</small>
               {:else if event.event_type === 'poop' && poopDetailsLabel(event.details)}
                 <small>{poopDetailsLabel(event.details)}</small>
               {/if}
@@ -87,7 +130,7 @@
         </li>
       {/each}
     </ul>
-  {:else}
-    <p class="empty-state">No events logged for this day.</p>
+  {:else if !filteredWeights.length}
+    <p class="empty-state">No entries recorded for this day.</p>
   {/if}
 </section>

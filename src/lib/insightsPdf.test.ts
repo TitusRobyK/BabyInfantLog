@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { buildInsightsPdf } from '../../netlify/lib/insightsPdf'
 import { ACTIONS } from './actionMeta'
 import { buildActionInsight, periodFor } from './insights'
-import type { CareEvent, EventDetails, EventType } from './types'
+import type { CareEvent, EventDetails, EventType, WeightMeasurement } from './types'
+import { buildWeightInsight } from './weightInsights'
 
 describe('Insights PDF', () => {
   it('creates a valid private-report document for a selected action', async () => {
@@ -116,6 +117,52 @@ describe('Insights PDF', () => {
     expect(recorded.x).toBe(details.x)
     expect(amount.x).toBe(details.x)
   })
+
+  it('renders legacy Feed volume in the downloading parent’s fl oz preference', async () => {
+    const generatedAt = new Date('2026-07-14T08:00:00Z')
+    const period = periodFor('day', '2026-07-13', 'America/Chicago', generatedAt)
+    const feed = event('feed', '2026-07-13T21:00:00Z', { amount: 2, unit: 'fl_oz' })
+    const bytes = await buildInsightsPdf({
+      babyName: 'Abel',
+      timezone: 'America/Chicago',
+      action: 'feed',
+      period,
+      generatedAt,
+      insights: [buildActionInsight('feed', [feed], [], period, 'America/Chicago')],
+      interruptions: [],
+      volumeUnit: 'fl_oz',
+    })
+
+    const document = await PDFDocument.load(bytes)
+    expect(decodedPageContents(document).some((content) => hasText(content, '2 fl oz'))).toBe(true)
+  })
+
+  it('creates a Weight report in the downloading parent’s units', async () => {
+    const generatedAt = new Date('2026-08-03T18:00:00Z')
+    const period = periodFor('week', '2026-07-27', 'America/Chicago', generatedAt)
+    const measurements: WeightMeasurement[] = [
+      weightMeasurement('weight-1', '2026-07-27', 3680),
+      weightMeasurement('weight-2', '2026-08-02', 3805),
+    ]
+    const bytes = await buildInsightsPdf({
+      babyName: 'Abel',
+      timezone: 'America/Chicago',
+      action: 'weight',
+      period,
+      generatedAt,
+      insights: [],
+      interruptions: [],
+      volumeUnit: 'fl_oz',
+      weightUnit: 'kg_g',
+      weightInsight: buildWeightInsight(measurements, period),
+    })
+
+    const document = await PDFDocument.load(bytes)
+    const pages = decodedPageContents(document)
+    expect(pages.some((content) => hasText(content, 'Weight'))).toBe(true)
+    expect(pages.some((content) => hasText(content, '3 kg 805 g'))).toBe(true)
+    expect(pages.some((content) => hasText(content, 'Date measured'))).toBe(true)
+  })
 })
 
 function decodedPageContents(document: PDFDocument): string[] {
@@ -159,6 +206,20 @@ function event(type: EventType, occurredAt: string, details: EventDetails = {}, 
     details,
     recorded_at: occurredAt,
     updated_at: occurredAt,
+    deleted_at: null,
+  }
+}
+
+function weightMeasurement(id: string, measuredOn: string, weightGrams: number): WeightMeasurement {
+  return {
+    id,
+    household_id: 'household-1',
+    child_id: 'child-1',
+    measured_on: measuredOn,
+    weight_grams: weightGrams,
+    created_by: 'parent-1',
+    recorded_at: `${measuredOn}T18:00:00Z`,
+    updated_at: `${measuredOn}T18:00:00Z`,
     deleted_at: null,
   }
 }

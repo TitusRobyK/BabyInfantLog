@@ -10,6 +10,7 @@
   import ResetPassword from './components/ResetPassword.svelte'
   import SettingsScreen from './components/SettingsScreen.svelte'
   import InsightsScreen from './components/InsightsScreen.svelte'
+  import WeightEditor from './components/WeightEditor.svelte'
   import { actionLabel } from './lib/actionMeta'
   import { emptyContext, loadContext } from './lib/context'
   import {
@@ -25,10 +26,19 @@
     softDeleteEvent,
     updateEvent,
   } from './lib/events'
+  import {
+    fetchWeightMeasurements,
+    optimisticWeightMeasurement,
+    restoreWeightMeasurement,
+    saveWeightMeasurement,
+    softDeleteWeightMeasurement,
+    updateWeightMeasurement,
+    weightMeasurementFromPending,
+  } from './lib/measurements'
   import { clearPendingForUser, pendingForUser, removePending } from './lib/offlineQueue'
   import { isConfigured, supabase } from './lib/supabase'
   import { localDateKey } from './lib/time'
-  import type { AppContext, CareEvent, EventDetails, EventType, SleepInterruption } from './lib/types'
+  import type { AppContext, CareEvent, EventDetails, EventType, SleepInterruption, WeightMeasurement } from './lib/types'
 
   type Route = 'log' | 'history' | 'insights' | 'settings'
   type Toast = { message: string; actionLabel?: string; action?: () => void }
@@ -38,6 +48,7 @@
   let context: AppContext = emptyContext
   let events: CareEvent[] = []
   let sleepInterruptions: SleepInterruption[] = []
+  let weightMeasurements: WeightMeasurement[] = []
   let route: Route = 'log'
   let loading = true
   let error = ''
@@ -46,6 +57,8 @@
   let busySession = false
   let busyInterruption = false
   let editingEvent: CareEvent | null = null
+  let editingWeight: WeightMeasurement | null = null
+  let recordingWeight = false
   let resetPasswordMode = new URLSearchParams(window.location.search).get('reset') === '1'
   let toast: Toast | null = null
   let toastTimer: ReturnType<typeof setTimeout> | null = null
@@ -102,6 +115,7 @@
       context = emptyContext
       events = []
       sleepInterruptions = []
+      weightMeasurements = []
       loading = false
       return
     }
@@ -122,12 +136,24 @@
 
   async function loadHouseholdData() {
     if (!context.household) return
-    const [nextEvents, nextInterruptions] = await Promise.all([
+    const [nextEvents, nextInterruptions, nextWeights, pendingOperations] = await Promise.all([
       fetchEvents(context.household.id),
       fetchSleepInterruptions(context.household.id),
+      fetchWeightMeasurements(context.household.id, context.child!.id),
+      user ? pendingForUser(user.id) : Promise.resolve([]),
     ])
     events = nextEvents
     sleepInterruptions = nextInterruptions
+    const savedWeightIds = new Set(nextWeights.map((measurement) => measurement.id))
+    const pendingWeights = pendingOperations
+      .map(weightMeasurementFromPending)
+      .filter((measurement): measurement is WeightMeasurement => Boolean(
+        measurement &&
+        measurement.household_id === context.household?.id &&
+        measurement.child_id === context.child?.id &&
+        !savedWeightIds.has(measurement.id),
+      ))
+    weightMeasurements = [...nextWeights, ...pendingWeights].sort(compareWeights)
   }
 
   function subscribeToHousehold(householdId: string) {
@@ -142,6 +168,11 @@
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'sleep_interruptions', filter: `household_id=eq.${householdId}` },
+        () => void loadHouseholdData(),
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'weight_measurements', filter: `household_id=eq.${householdId}` },
         () => void loadHouseholdData(),
       )
       .subscribe()
@@ -315,20 +346,104 @@
     showToast('Event restored')
   }
 
+  function openNewWeight() {
+    editingWeight = null
+    recordingWeight = true
+  }
+
+  function openWeight(measurement: WeightMeasurement) {
+    recordingWeight = false
+    editingWeight = measurement
+  }
+
+  function closeWeightEditor() {
+    recordingWeight = false
+    editingWeight = null
+  }
+
+  async function saveEditedWeight(measuredOn: string, weightGrams: number) {
+    if (editingWeight) {
+      if (editingWeight.sync_status === 'offline' && !navigator.onLine) {
+        const queued = await saveWeightMeasurement({
+          ...editingWeight,
+          measured_on: measuredOn,
+          weight_grams: weightGrams,
+          updated_at: new Date().toISOString(),
+        })
+        weightMeasurements = weightMeasurements
+          .map((measurement) => measurement.id === queued.id ? queued : measurement)
+          .sort(compareWeights)
+        pendingCount = user ? (await pendingForUser(user.id)).length : 0
+        showToast('Weight updated offline')
+        return
+      }
+
+      if (editingWeight.sync_status === 'offline' && user) {
+        const result = await flushPending(user.id)
+        if (result.failed) throw new Error('Connect to the internet, then try updating this weight again.')
+        pendingCount = (await pendingForUser(user.id)).length
+      }
+
+      const saved = await updateWeightMeasurement(editingWeight.id, {
+        measured_on: measuredOn,
+        weight_grams: weightGrams,
+      })
+      weightMeasurements = weightMeasurements
+        .map((measurement) => measurement.id === saved.id ? { ...saved, sync_status: 'saved' as const } : measurement)
+        .sort(compareWeights)
+      showToast('Weight updated')
+      return
+    }
+
+    const optimistic = optimisticWeightMeasurement(scope(), measuredOn, weightGrams)
+    weightMeasurements = [optimistic, ...weightMeasurements].sort(compareWeights)
+    try {
+      const saved = await saveWeightMeasurement(optimistic)
+      weightMeasurements = weightMeasurements
+        .map((measurement) => measurement.id === saved.id ? saved : measurement)
+        .sort(compareWeights)
+      pendingCount = user ? (await pendingForUser(user.id)).length : 0
+      showToast(saved.sync_status === 'offline' ? 'Weight saved offline' : 'Weight recorded')
+    } catch (caught) {
+      weightMeasurements = weightMeasurements.map((measurement) =>
+        measurement.id === optimistic.id ? { ...measurement, sync_status: 'error' } : measurement,
+      )
+      throw caught
+    }
+  }
+
+  async function removeEditedWeight(measurement: WeightMeasurement) {
+    if (measurement.sync_status === 'offline') await removePending(measurement.id)
+    else await softDeleteWeightMeasurement(measurement.id)
+    weightMeasurements = weightMeasurements.filter((item) => item.id !== measurement.id)
+    pendingCount = user ? (await pendingForUser(user.id)).length : 0
+    showToast('Weight removed', measurement.sync_status === 'offline' ? undefined : 'Restore', measurement.sync_status === 'offline' ? undefined : () => void restoreRemovedWeight(measurement.id))
+  }
+
+  async function restoreRemovedWeight(id: string) {
+    await restoreWeightMeasurement(id)
+    await loadHouseholdData()
+    showToast('Weight restored')
+  }
+
+  function compareWeights(left: WeightMeasurement, right: WeightMeasurement): number {
+    return right.measured_on.localeCompare(left.measured_on) || right.recorded_at.localeCompare(left.recorded_at)
+  }
+
   async function syncPending(): Promise<number> {
     if (!user || !context.household) return pendingCount
     const result = await flushPending(user.id)
     pendingCount = (await pendingForUser(user.id)).length
     if (result.completed) {
       await loadHouseholdData()
-      showToast(`${result.completed} ${result.completed === 1 ? 'event' : 'events'} synced`)
+      showToast(`${result.completed} ${result.completed === 1 ? 'item' : 'items'} synced`)
     }
     return pendingCount
   }
 
   async function signOut() {
     if (!user) return
-    if (pendingCount && !window.confirm(`${pendingCount} event(s) have not synced. Log out and remove them from this device?`)) return
+    if (pendingCount && !window.confirm(`${pendingCount} item(s) have not synced. Log out and remove them from this device?`)) return
     if (pendingCount) await clearPendingForUser(user.id)
     await supabase.auth.signOut()
     route = 'log'
@@ -386,6 +501,7 @@
         profile={context.profile}
         members={context.members}
         {events}
+        measurements={weightMeasurements}
         interruptions={sleepInterruptions}
         {online}
         {busySession}
@@ -394,14 +510,28 @@
         onSession={changeSession}
         onInterruption={changeSleepInterruption}
         onEdit={(event) => (editingEvent = event)}
+        onRecordWeight={openNewWeight}
+        onEditWeight={openWeight}
       />
     {:else if route === 'history'}
-      <HistoryScreen {events} interruptions={sleepInterruptions} timezone={context.household.timezone} profile={context.profile} members={context.members} onEdit={(event) => (editingEvent = event)} />
+      <HistoryScreen
+        {events}
+        measurements={weightMeasurements}
+        interruptions={sleepInterruptions}
+        timezone={context.household.timezone}
+        profile={context.profile}
+        members={context.members}
+        onEdit={(event) => (editingEvent = event)}
+        onEditWeight={openWeight}
+      />
     {:else if route === 'insights'}
       <InsightsScreen
         {events}
+        measurements={weightMeasurements}
         interruptions={sleepInterruptions}
         timezone={context.household.timezone}
+        volumeUnit={context.profile.volume_unit}
+        weightUnit={context.profile.weight_unit}
         {online}
         {pendingCount}
         historyStartDate={localDateKey(new Date(Date.now() - INSIGHTS_HISTORY_DAYS * 86_400_000).toISOString(), context.household.timezone)}
@@ -428,9 +558,21 @@
   <EventEditor
     event={editingEvent}
     defaultUnit={context.profile.volume_unit}
+    volumeMaxMl={context.profile.volume_slider_max_ml}
     onClose={() => (editingEvent = null)}
     onSave={saveEditedEvent}
     onRemove={removeEditedEvent}
+  />
+{/if}
+
+{#if (recordingWeight || editingWeight) && context.profile && context.household}
+  <WeightEditor
+    measurement={editingWeight}
+    timezone={context.household.timezone}
+    unit={context.profile.weight_unit}
+    onClose={closeWeightEditor}
+    onSave={saveEditedWeight}
+    onRemove={editingWeight ? removeEditedWeight : undefined}
   />
 {/if}
 

@@ -63,11 +63,13 @@ describe('Insights report function boundary', () => {
     const membership = terminalQuery('maybeSingle', { household_id: 'household-1' })
     const household = terminalQuery('single', { id: 'household-1', timezone: 'America/Chicago' })
     const child = terminalQuery('single', { id: 'child-1', nickname: 'Abel' })
+    const profile = terminalQuery('single', { volume_unit: 'ml', weight_unit: 'lb_oz' })
     const events = terminalQuery('range', [])
     client.from.mockImplementation((table: string) => ({
       household_members: membership,
       households: household,
       children: child,
+      parent_profiles: profile,
       events,
     })[table])
 
@@ -85,9 +87,41 @@ describe('Insights report function boundary', () => {
     expect(events.eq).toHaveBeenCalledWith('child_id', 'child-1')
     expect(new TextDecoder().decode((await response.arrayBuffer()).slice(0, 5))).toBe('%PDF-')
   })
+
+  it('generates a Weight-only PDF from the authenticated child measurements', async () => {
+    client.auth.getUser.mockResolvedValue({ data: { user: { id: 'parent-1' } }, error: null })
+    const membership = terminalQuery('maybeSingle', { household_id: 'household-1' })
+    const household = terminalQuery('single', { id: 'household-1', timezone: 'America/Chicago' })
+    const child = terminalQuery('single', { id: 'child-1', nickname: 'Abel' })
+    const profile = terminalQuery('single', { volume_unit: 'fl_oz', weight_unit: 'kg_g' })
+    const currentWeights = terminalQuery('range', [{
+      id: 'weight-1', household_id: 'household-1', child_id: 'child-1', measured_on: '2026-07-12',
+      weight_grams: 3805, created_by: 'parent-1', recorded_at: '2026-07-12T18:00:00Z',
+      updated_at: '2026-07-12T18:00:00Z', deleted_at: null,
+    }])
+    const previousWeight = terminalQuery('limit', [])
+    const weightQueries = [currentWeights, previousWeight]
+    client.from.mockImplementation((table: string) => ({
+      household_members: membership,
+      households: household,
+      children: child,
+      parent_profiles: profile,
+    })[table] ?? (table === 'weight_measurements' ? weightQueries.shift() : undefined))
+
+    const response = await insightsReport(new Request('https://example.com/api/insights-report', {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'weight', range: 'day', anchorDate: '2026-07-12' }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(currentWeights.eq).toHaveBeenCalledWith('household_id', 'household-1')
+    expect(currentWeights.eq).toHaveBeenCalledWith('child_id', 'child-1')
+    expect(new TextDecoder().decode((await response.arrayBuffer()).slice(0, 5))).toBe('%PDF-')
+  })
 })
 
-function terminalQuery(terminal: 'maybeSingle' | 'single' | 'range', data: unknown) {
+function terminalQuery(terminal: 'maybeSingle' | 'single' | 'range' | 'limit', data: unknown) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {}
   for (const method of ['select', 'eq', 'is', 'in', 'gte', 'lt', 'or', 'order']) {
     query[method] = vi.fn(() => query)

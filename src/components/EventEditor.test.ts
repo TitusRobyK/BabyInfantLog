@@ -30,12 +30,13 @@ function careEvent(eventType: EventType, details: EventDetails): CareEvent {
   }
 }
 
-function renderEditor(event: CareEvent, onSave: SaveHandler = async () => undefined) {
+function renderEditor(event: CareEvent, onSave: SaveHandler = async () => undefined, defaultUnit: 'ml' | 'fl_oz' = 'ml', volumeMaxMl = 350) {
   mounted = mount(EventEditor, {
     target: document.body,
     props: {
       event,
-      defaultUnit: 'ml',
+      defaultUnit,
+      volumeMaxMl,
       onClose: () => undefined,
       onSave,
       onRemove: async () => undefined,
@@ -62,29 +63,22 @@ describe('event amount sliders', () => {
     expect(output?.textContent).toContain('125 ml')
   })
 
-  it('converts the 60 ml pump limit and value when fluid ounces are selected', async () => {
+  it('uses the shared maximum and global unit for Pump without a local unit switch', async () => {
     const pumpEvent = careEvent('pump', { amount: 60, amount_ml: 60, unit: 'ml' })
     const onSave = vi.fn<SaveHandler>(async () => undefined)
-    renderEditor(pumpEvent, onSave)
+    renderEditor(pumpEvent, onSave, 'fl_oz', 90)
 
-    const unit = document.querySelector<HTMLInputElement>('input[name="pump-unit"][value="fl_oz"]')
     const slider = document.querySelector<HTMLInputElement>('#pump-amount')
     const output = document.querySelector<HTMLOutputElement>('output[for="pump-amount"]')
     const times = document.querySelectorAll<HTMLInputElement>('input[type="datetime-local"]')
-    expect(slider?.max).toBe('60')
+    expect(document.querySelector('input[name="pump-unit"]')).toBeNull()
+    expect(slider?.max).toBe('3')
+    expect(slider?.step).toBe('0.1')
+    expect(slider?.value).toBe('2')
+    expect(output?.textContent).toContain('2 fl oz')
     expect(times).toHaveLength(2)
     expect(times[0]?.value).not.toBe('')
     expect(times[1]?.value).not.toBe('')
-
-    if (!unit) throw new Error('Pump unit selector was not rendered')
-    unit.click()
-    await tick()
-
-    expect(unit.checked).toBe(true)
-    expect(slider?.max).toBe('2.03')
-    expect(slider?.step).toBe('0.01')
-    expect(slider?.value).toBe('2.03')
-    expect(output?.textContent).toContain('2.03 fl oz')
 
     const save = document.querySelector<HTMLButtonElement>('button.primary')
     save?.click()
@@ -93,6 +87,13 @@ describe('event amount sliders', () => {
     expect(onSave).toHaveBeenCalledOnce()
     expect(onSave.mock.calls[0]?.[1]).toBe(pumpEvent.occurred_at)
     expect(onSave.mock.calls[0]?.[3]).toBe(pumpEvent.ended_at)
+    expect(onSave.mock.calls[0]?.[2].amount_ml).toBe(60)
+  })
+
+  it('temporarily extends an editor for a saved amount above the current maximum', () => {
+    renderEditor(careEvent('feed', { amount_ml: 120, amount: 120, unit: 'ml' }), undefined, 'ml', 90)
+    expect(document.querySelector<HTMLInputElement>('#feed-amount')?.max).toBe('120')
+    expect(document.body.textContent).toContain('This entry is above your current slider maximum.')
   })
 })
 
@@ -104,12 +105,17 @@ describe('Poop details', () => {
     const sizeOptions = document.querySelectorAll<HTMLInputElement>('input[name="poop-size"]')
     const consistencyOptions = document.querySelectorAll<HTMLInputElement>('input[name="poop-consistency"]')
     const colorOptions = document.querySelectorAll<HTMLInputElement>('input[name="poop-color"]')
-    expect(sizeOptions).toHaveLength(3)
+    expect(sizeOptions).toHaveLength(4)
+    expect([...sizeOptions].map((option) => option.value)).toEqual(['spotted', 'small', 'medium', 'large'])
     expect(consistencyOptions).toHaveLength(2)
     expect(colorOptions).toHaveLength(9)
+    expect(document.body.textContent).toContain('Amount')
+    expect(document.body.textContent).toContain('Type')
+    expect(document.body.textContent).toContain('Solid')
+    expect(document.body.textContent).toContain('Spotted means only a trace or smear.')
     expect(document.body.textContent).toContain('Choose the closest match.')
 
-    document.querySelector<HTMLInputElement>('input[name="poop-size"][value="medium"]')?.click()
+    document.querySelector<HTMLInputElement>('input[name="poop-size"][value="spotted"]')?.click()
     document.querySelector<HTMLInputElement>('input[name="poop-consistency"][value="liquid"]')?.click()
     document.querySelector<HTMLInputElement>('input[name="poop-color"][value="mustard_yellow"]')?.click()
     await tick()
@@ -117,7 +123,25 @@ describe('Poop details', () => {
     await tick()
 
     expect(onSave).toHaveBeenCalledOnce()
-    expect(onSave.mock.calls[0]?.[2]).toMatchObject({ size: 'medium', consistency: 'liquid', color: 'mustard_yellow' })
+    expect(onSave.mock.calls[0]?.[2]).toMatchObject({ size: 'spotted', consistency: 'liquid', color: 'mustard_yellow' })
+  })
+
+  it('loads and clears a previously selected Spotted amount', async () => {
+    const onSave = vi.fn<SaveHandler>(async () => undefined)
+    renderEditor(careEvent('poop', { size: 'spotted' }), onSave)
+
+    const spotted = document.querySelector<HTMLInputElement>('input[name="poop-size"][value="spotted"]')
+    expect(spotted?.checked).toBe(true)
+
+    const clear = [...document.querySelectorAll<HTMLButtonElement>('button.clear-selection')]
+      .find((button) => button.closest('fieldset')?.querySelector('legend')?.textContent === 'Amount')
+    clear?.click()
+    await tick()
+
+    expect(document.querySelector<HTMLInputElement>('input[name="poop-size"]:checked')).toBeNull()
+    document.querySelector<HTMLButtonElement>('button.primary')?.click()
+    await tick()
+    expect(onSave.mock.calls[0]?.[2].size).toBeUndefined()
   })
 
   it('shows guidance for attention colors and lets the parent clear a choice', async () => {

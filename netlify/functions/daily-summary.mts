@@ -1,12 +1,13 @@
 import type { Config } from '@netlify/functions'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { canonicalVolumeMl } from '../../src/lib/volume'
 
 interface CareEvent {
   id: string
   event_type: string
   occurred_at: string
   ended_at: string | null
-  details: { amount_ml?: number }
+  details: { amount_ml?: number; amount?: number; unit?: 'ml' | 'fl_oz' }
 }
 
 interface SleepInterruption {
@@ -122,10 +123,10 @@ function buildMetrics(events: CareEvent[], interruptions: SleepInterruption[], s
   const pumpDurations = pump.map((event) => durationMinutes(event, start, end))
   const sleepTotal = sleepDurations.reduce((sum, value) => sum + value, 0)
   const pumpTotal = pumpDurations.reduce((sum, value) => sum + value, 0)
-  const volumeEvents = pump.filter((event) => typeof event.details?.amount_ml === 'number')
-  const pumpVolumeMl = volumeEvents.reduce((sum, event) => sum + (event.details.amount_ml ?? 0), 0)
-  const feedVolumeEvents = feeds.filter((event) => typeof event.details?.amount_ml === 'number')
-  const feedVolumeMl = feedVolumeEvents.reduce((sum, event) => sum + (event.details.amount_ml ?? 0), 0)
+  const volumeEvents = pump.filter((event) => canonicalVolumeMl(event.details) !== null)
+  const pumpVolumeMl = volumeEvents.reduce((sum, event) => sum + (canonicalVolumeMl(event.details) ?? 0), 0)
+  const feedVolumeEvents = feeds.filter((event) => canonicalVolumeMl(event.details) !== null)
+  const feedVolumeMl = feedVolumeEvents.reduce((sum, event) => sum + (canonicalVolumeMl(event.details) ?? 0), 0)
   const sleepInterruptions = interruptions.filter((interruption) => {
     const interruptionStart = new Date(interruption.started_at)
     const interruptionEnd = new Date(interruption.ended_at ?? end)
@@ -134,7 +135,7 @@ function buildMetrics(events: CareEvent[], interruptions: SleepInterruption[], s
   const feedGap = medianInterval(feeds)
 
   const sentences = [
-    `${counts.feed} feeds${feedGap !== null ? `; median gap ${formatDuration(feedGap)}` : ''}${feedVolumeEvents.length ? `; ${Math.round(feedVolumeMl)} ml recorded across ${feedVolumeEvents.length}` : ''}.`,
+    `${counts.feed} feeds${feedGap !== null ? `; median gap ${formatDuration(feedGap)}` : ''}${feedVolumeEvents.length ? `; amounts recorded for ${feedVolumeEvents.length}` : ''}.`,
     `${formatDuration(sleepTotal)} sleep across ${sleep.length} sessions${sleepDurations.length ? `; longest ${formatDuration(Math.max(...sleepDurations))}` : ''}${sleepInterruptions.length ? `; ${sleepInterruptions.length} interruption${sleepInterruptions.length === 1 ? '' : 's'}` : ''}.`,
     `${counts.pee} pee, ${counts.poop} poop, ${counts.diaper_check} diaper checks.`,
     `${counts.burp} burps recorded.`,
@@ -142,7 +143,7 @@ function buildMetrics(events: CareEvent[], interruptions: SleepInterruption[], s
   ]
   if (pump.length) {
     sentences.push(
-      `${pump.length} pump sessions totaling ${formatDuration(pumpTotal)}${volumeEvents.length ? `; ${Math.round(pumpVolumeMl)} ml recorded across ${volumeEvents.length}` : '; volume not recorded'}.`,
+      `${pump.length} pump sessions totaling ${formatDuration(pumpTotal)}${volumeEvents.length ? `; amounts recorded for ${volumeEvents.length}` : '; amount not recorded'}.`,
     )
   }
 

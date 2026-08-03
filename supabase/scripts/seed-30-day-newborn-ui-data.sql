@@ -50,11 +50,13 @@ declare
   v_pump_volume integer;
   v_pump_volume_count integer;
   v_seeded_events integer;
+  v_seeded_measurements integer;
   v_feed_minutes integer[] := array[10, 165, 330, 500, 670, 850, 1030, 1200, 1360];
   v_pee_minutes integer[] := array[90, 270, 450, 630, 810, 990, 1170, 1350];
   v_poop_minutes integer[] := array[300, 660, 1020, 1320];
   v_sleep_minutes integer[] := array[35, 190, 360, 530, 700, 880, 1060, 1230, 1385];
   v_sleep_durations integer[] := array[115, 125, 120, 120, 130, 130, 120, 110, 50];
+  v_weight_grams integer[] := array[3420, 3330, 3540, 3780, 4030];
 begin
   select count(*) into v_target_count
   from public.children
@@ -101,6 +103,16 @@ begin
   delete from public.events
   where child_id = v_child.id
     and details ->> 'seed_source' = v_seed_source;
+
+  -- Weight measurements do not carry free-form metadata. Their deterministic
+  -- fixture UUID identifies only rows owned by this seed.
+  delete from public.weight_measurements
+  where child_id = v_child.id
+    and exists (
+      select 1
+      from generate_series(1, array_length(v_weight_grams, 1)) fixture(weight_index)
+      where id = md5(v_seed_source || ':' || child_id::text || ':weight:' || fixture.weight_index)::uuid
+    );
 
   for v_day_index in 0..29 loop
     v_day := v_today - (29 - v_day_index);
@@ -199,7 +211,12 @@ begin
           v_at, null, 0,
           jsonb_build_object(
             'seed_source', v_seed_source,
-            'size', case ((v_day_index + v_i) % 3) when 0 then 'small' when 1 then 'medium' else 'large' end,
+            'size', case ((v_day_index + v_i) % 4)
+              when 0 then 'spotted'
+              when 1 then 'small'
+              when 2 then 'medium'
+              else 'large'
+            end,
             'consistency', case when ((v_day_index + v_i) % 4) = 0 then 'formed' else 'liquid' end,
             'color', case ((v_day_index + v_i) % 6)
               when 0 then 'mustard_yellow'
@@ -436,6 +453,23 @@ begin
     end if;
   end loop;
 
+  -- Weekly synthetic weights include a small expected early dip followed by
+  -- steady gain. They are fixture data only, not a growth recommendation.
+  for v_i in 1..array_length(v_weight_grams, 1) loop
+    v_day := v_today - (35 - v_i * 7);
+    v_creator := v_parent_ids[1 + ((v_i - 1) % v_parent_count)];
+    insert into public.weight_measurements (
+      id, household_id, child_id, measured_on, weight_grams, created_by
+    ) values (
+      md5(v_seed_source || ':' || v_child.id::text || ':weight:' || v_i)::uuid,
+      v_child.household_id,
+      v_child.id,
+      v_day,
+      v_weight_grams[v_i],
+      v_creator
+    );
+  end loop;
+
   -- Guarantee a visible Quick update burp reminder without creating future rows.
   v_creator := v_parent_ids[1 + (29 % v_parent_count)];
   insert into public.events (
@@ -452,6 +486,16 @@ begin
   where child_id = v_child.id
     and details ->> 'seed_source' = v_seed_source;
 
-  raise notice 'Seeded % synthetic events for % across the latest 30 calendar days.', v_seeded_events, v_child.nickname;
+  select count(*) into v_seeded_measurements
+  from public.weight_measurements
+  where child_id = v_child.id
+    and exists (
+      select 1
+      from generate_series(1, array_length(v_weight_grams, 1)) fixture(weight_index)
+      where id = md5(v_seed_source || ':' || child_id::text || ':weight:' || fixture.weight_index)::uuid
+    );
+
+  raise notice 'Seeded % synthetic events and % weekly weight measurements for % across the latest 30 calendar days.',
+    v_seeded_events, v_seeded_measurements, v_child.nickname;
 end;
 $seed$;

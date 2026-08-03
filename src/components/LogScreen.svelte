@@ -2,13 +2,16 @@
   import { onMount } from 'svelte'
   import { ACTION_BY_TYPE, actionLabel, poopDetailsLabel } from '../lib/actionMeta'
   import { durationMinutes, formatDuration, formatElapsed, formatTime, netSleepMinutes } from '../lib/time'
-  import type { CareEvent, Child, EventType, HouseholdMember, ParentProfile, SleepInterruption } from '../lib/types'
+  import type { CareEvent, Child, EventType, HouseholdMember, ParentProfile, SleepInterruption, WeightMeasurement } from '../lib/types'
+  import { canonicalVolumeMl, formatVolume } from '../lib/volume'
+  import { formatWeight } from '../lib/weight'
 
   export let child: Child
   export let timezone: string
   export let profile: ParentProfile
   export let members: HouseholdMember[]
   export let events: CareEvent[]
+  export let measurements: WeightMeasurement[] = []
   export let interruptions: SleepInterruption[]
   export let online: boolean
   export let busySession = false
@@ -17,6 +20,8 @@
   export let onSession: (type: 'sleep' | 'pump', state: 'start' | 'end') => void
   export let onInterruption: (state: 'start' | 'end') => void
   export let onEdit: (event: CareEvent) => void
+  export let onRecordWeight: () => void = () => undefined
+  export let onEditWeight: (measurement: WeightMeasurement) => void = () => undefined
 
   let now = Date.now()
   let timer: ReturnType<typeof setInterval>
@@ -33,6 +38,10 @@
     ? interruptions.find((interruption) => interruption.sleep_event_id === activeSleep.id && !interruption.ended_at && !interruption.deleted_at)
     : undefined
   $: recent = events.filter((event) => !event.deleted_at).slice(0, 5)
+  $: latestWeight = measurements
+    .filter((measurement) => !measurement.deleted_at)
+    .slice()
+    .sort((a, b) => b.measured_on.localeCompare(a.measured_on) || b.recorded_at.localeCompare(a.recorded_at))[0]
   $: lastPoop = latestEvent(events, 'poop')
   $: lastPee = latestEvent(events, 'pee')
   $: lastFeed = latestEvent(events, 'feed')
@@ -56,6 +65,16 @@
 
   function interruptionCount(eventId: string) {
     return interruptions.filter((interruption) => interruption.sleep_event_id === eventId && !interruption.deleted_at).length
+  }
+
+  function volumeLabel(event: CareEvent): string {
+    const amountMl = canonicalVolumeMl(event.details)
+    return amountMl === null ? '' : formatVolume(amountMl, profile.volume_unit)
+  }
+
+  function measurementDate(date: string): string {
+    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+      .format(new Date(`${date}T12:00:00Z`))
   }
 
   function latestEvent(sourceEvents: CareEvent[], type: 'poop' | 'pee' | 'feed' | 'burp') {
@@ -138,6 +157,22 @@
     {/if}
   </section>
 
+  <section class="weight-card" aria-labelledby="weight-card-title">
+    <div class="weight-card-heading">
+      <h2 id="weight-card-title">Weight</h2>
+      <button type="button" on:click={onRecordWeight}>Record weight</button>
+    </div>
+    {#if latestWeight}
+      <button class="weight-latest" type="button" on:click={() => onEditWeight(latestWeight)} aria-label={`Edit latest weight, ${formatWeight(latestWeight.weight_grams, profile.weight_unit)}, measured ${measurementDate(latestWeight.measured_on)}`}>
+        <span>Latest</span>
+        <strong>{formatWeight(latestWeight.weight_grams, profile.weight_unit)}</strong>
+        <small>{measurementDate(latestWeight.measured_on)}{latestWeight.sync_status === 'offline' ? ' · Waiting to sync' : ''}</small>
+      </button>
+    {:else}
+      <p>No weight recorded yet.</p>
+    {/if}
+  </section>
+
   <section class="recent-section" aria-labelledby="recent-title">
     <h2 id="recent-title">Recent</h2>
     {#if recent.length}
@@ -150,10 +185,12 @@
                 <strong>{actionLabel(event.event_type)}</strong>
                 {#if event.event_type === 'sleep' && event.ended_at}
                   <small>{formatDuration(netSleepMinutes(event, interruptions))}{interruptionCount(event.id) ? ` · ${interruptionCount(event.id)} interruption${interruptionCount(event.id) === 1 ? '' : 's'}` : ''}</small>
+                {:else if event.event_type === 'pump' && event.ended_at}
+                  <small>{formatDuration(durationMinutes(event.occurred_at, event.ended_at))}{volumeLabel(event) ? ` · ${volumeLabel(event)}` : ''}</small>
                 {:else if event.ended_at}
                   <small>{formatDuration(durationMinutes(event.occurred_at, event.ended_at))}</small>
-                {:else if event.event_type === 'feed' && event.details.amount_ml}
-                  <small>{event.details.amount_ml} ml</small>
+                {:else if event.event_type === 'feed' && volumeLabel(event)}
+                  <small>{volumeLabel(event)}</small>
                 {:else if event.event_type === 'poop' && poopDetailsLabel(event.details)}
                   <small>{poopDetailsLabel(event.details)}</small>
                 {/if}

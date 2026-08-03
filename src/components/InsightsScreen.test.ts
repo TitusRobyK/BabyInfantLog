@@ -1,7 +1,7 @@
 import { mount, tick, unmount } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { todayDateKey } from '../lib/insights'
-import type { CareEvent, EventDetails, EventType } from '../lib/types'
+import type { CareEvent, EventDetails, EventType, WeightMeasurement } from '../lib/types'
 import InsightsScreen from './InsightsScreen.svelte'
 
 vi.mock('../lib/api', () => ({
@@ -17,11 +17,12 @@ afterEach(async () => {
   vi.useRealTimers()
 })
 
-function render(online = true, historyStartDate = '2025-01-01', events: CareEvent[] = []) {
+function render(online = true, historyStartDate = '2025-01-01', events: CareEvent[] = [], measurements: WeightMeasurement[] = []) {
   mounted = mount(InsightsScreen, {
     target: document.body,
     props: {
       events,
+      measurements,
       interruptions: [],
       timezone: 'America/Chicago',
       online,
@@ -51,14 +52,14 @@ function careEvent(id: string, eventType: EventType, occurredAt: string, details
 }
 
 describe('Insights screen', () => {
-  it('opens with All Actions and all eight action cards', () => {
+  it('opens with All Actions, all care actions, and Weight', () => {
     render()
     const action = document.querySelector<HTMLSelectElement>('.insights-controls select')
     expect(document.querySelector('h1')?.textContent).toBe('Insights')
     expect(action?.value).toBe('all')
-    expect(document.querySelectorAll('.insight-card')).toHaveLength(8)
+    expect(document.querySelectorAll('.insight-card')).toHaveLength(9)
     expect([...document.querySelectorAll('.insight-card h3')].map((heading) => heading.textContent)).toEqual([
-      'Poop', 'Pee', 'Feed', 'Burp', 'Sleep', 'Diaper check', 'Hiccups', 'Pump',
+      'Poop', 'Pee', 'Feed', 'Burp', 'Sleep', 'Diaper check', 'Hiccups', 'Pump', 'Weight',
     ])
   })
 
@@ -69,7 +70,7 @@ describe('Insights screen', () => {
     await tick()
 
     const toggles = document.querySelectorAll<HTMLButtonElement>('.breakdown-toggle')
-    expect(toggles).toHaveLength(8)
+    expect(toggles).toHaveLength(9)
     toggles[0]?.click()
     await tick()
     expect(document.querySelectorAll('.insight-card.expanded')).toHaveLength(1)
@@ -134,7 +135,7 @@ describe('Insights screen', () => {
 
     const restoredFeedDetails = document.querySelector<HTMLButtonElement>('[data-insight-action="feed"] .view-insight-details')
     expect(document.querySelector<HTMLSelectElement>('.insights-controls select')?.value).toBe('all')
-    expect(document.querySelectorAll('.insight-card')).toHaveLength(8)
+    expect(document.querySelectorAll('.insight-card')).toHaveLength(9)
     expect(week?.getAttribute('aria-pressed')).toBe('true')
     expect(document.querySelector('.period-label strong')?.textContent).toBe(selectedPeriod)
     expect(document.activeElement).toBe(restoredFeedDetails)
@@ -196,4 +197,38 @@ describe('Insights screen', () => {
     expect(download?.disabled).toBe(true)
     expect(document.body.textContent).toContain('Connect to the internet to download a report.')
   })
+
+  it('shows Weight as a dated measurement trend instead of an event count', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-02T18:00:00.000Z'))
+    const measurements: WeightMeasurement[] = [
+      weightMeasurement('weight-1', '2026-07-27', 3680),
+      weightMeasurement('weight-2', '2026-08-02', 3805),
+    ]
+    render(true, '2025-01-01', [], measurements)
+
+    const select = document.querySelector<HTMLSelectElement>('.insights-controls select')!
+    select.value = 'weight'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    await tick()
+
+    expect(document.querySelector('.metric-summary')?.textContent).toContain('8 lb 6.2 oz')
+    expect(document.querySelector('.metric-summary')?.textContent).toContain('+4.4 oz since Jul 27')
+    expect(document.querySelector('.chart-detail-list')?.textContent).toContain('Aug 2')
+    expect(document.body.textContent).not.toContain('weight entries')
+  })
 })
+
+function weightMeasurement(id: string, measuredOn: string, weightGrams: number): WeightMeasurement {
+  return {
+    id,
+    household_id: 'household-1',
+    child_id: 'child-1',
+    measured_on: measuredOn,
+    weight_grams: weightGrams,
+    created_by: 'parent-1',
+    recorded_at: `${measuredOn}T18:00:00.000Z`,
+    updated_at: `${measuredOn}T18:00:00.000Z`,
+    deleted_at: null,
+  }
+}

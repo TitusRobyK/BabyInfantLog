@@ -59,7 +59,7 @@ export function poopColorLabel(color: PoopColor): string {
 export function poopDetailsLabel(details: EventDetails): string {
   const values = [
     details.size ? capitalize(details.size) : '',
-    details.consistency ? (details.consistency === 'formed' ? 'Formed' : 'Liquid') : '',
+    details.consistency ? (details.consistency === 'formed' ? 'Solid' : 'Liquid') : '',
     details.color ? poopColorLabel(details.color) : '',
   ].filter(Boolean)
   return values.join(' · ')

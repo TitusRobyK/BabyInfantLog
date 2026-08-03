@@ -96,6 +96,19 @@ describe('Insights aggregation', () => {
     expect(insight.days.filter((day) => day.count === 0)).toHaveLength(5)
   })
 
+  it('counts legacy positive volumes and treats zero as not recorded', () => {
+    const period = periodFor('day', '2026-07-13', 'America/Chicago', new Date('2026-07-14T08:00:00Z'))
+    const feeds = [
+      event({ id: 'feed-legacy', event_type: 'feed', occurred_at: '2026-07-13T12:00:00Z', details: { amount: 2, unit: 'fl_oz' } }),
+      event({ id: 'feed-zero', event_type: 'feed', occurred_at: '2026-07-13T15:00:00Z', details: { amount_ml: 0 } }),
+    ]
+    const insight = buildActionInsight('feed', feeds, [], period, 'America/Chicago')
+
+    expect(insight.volumeEntries).toBe(1)
+    expect(insight.missingVolume).toBe(1)
+    expect(insight.volumeMl).toBe(59.1)
+  })
+
   it('keeps daily Pump volume and clips an open session to the current time', () => {
     const now = new Date('2026-07-13T18:00:00Z')
     const period = periodFor('day', '2026-07-13', 'America/Chicago', now)

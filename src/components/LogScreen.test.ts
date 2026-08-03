@@ -2,7 +2,7 @@ import { mount, tick, unmount, type SvelteComponent } from 'svelte'
 import { createClassComponent } from 'svelte/legacy'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import LogScreen from './LogScreen.svelte'
-import type { CareEvent, EventType, ParentProfile } from '../lib/types'
+import type { CareEvent, EventType, ParentProfile, WeightMeasurement } from '../lib/types'
 
 let mounted: ReturnType<typeof mount> | undefined
 let reactiveMounted: SvelteComponent | undefined
@@ -22,6 +22,8 @@ const profile: ParentProfile = {
   parent_type: 'father',
   show_pump_action: true,
   volume_unit: 'ml',
+  volume_slider_max_ml: 350,
+  weight_unit: 'lb_oz',
   created_at: '2026-07-13T12:00:00Z',
   updated_at: '2026-07-13T12:00:00Z',
 }
@@ -41,13 +43,14 @@ function renderReactive(events: CareEvent[]) {
   })
 }
 
-function logScreenProps(events: CareEvent[], onLog = vi.fn()) {
+function logScreenProps(events: CareEvent[], onLog = vi.fn(), measurements: WeightMeasurement[] = []) {
   return {
     child: { id: 'child-1', household_id: 'household-1', nickname: 'Abel', birth_date: null, active: true, created_at: '2026-07-13T12:00:00Z' },
     timezone: 'America/Chicago',
     profile,
     members: [],
     events,
+    measurements,
     interruptions: [],
     online: true,
     onLog,
@@ -138,4 +141,45 @@ describe('Log actions', () => {
     expect(document.querySelector('.since-last-grid div:last-child dd')?.textContent).toBe('Just now')
     expect(document.querySelector('.burp-reminder')).toBeNull()
   })
+
+  it('shows the latest shared Weight separately from rapid care actions', () => {
+    const onRecordWeight = vi.fn()
+    const onEditWeight = vi.fn()
+    const measurement = weightMeasurement('weight-1', '2026-08-01', 3805)
+    mounted = mount(LogScreen, {
+      target: document.body,
+      props: { ...logScreenProps([], vi.fn(), [measurement]), onRecordWeight, onEditWeight },
+    })
+
+    expect(document.querySelector('.weight-card')?.textContent).toContain('8 lb 6.2 oz')
+    expect(document.querySelectorAll('.action-grid .action-button')).toHaveLength(8)
+    document.querySelector<HTMLButtonElement>('.weight-card-heading button')?.click()
+    document.querySelector<HTMLButtonElement>('.weight-latest')?.click()
+    expect(onRecordWeight).toHaveBeenCalledOnce()
+    expect(onEditWeight).toHaveBeenCalledWith(measurement)
+  })
+
+  it('uses the parent’s global fluid-ounce preference in Recent', () => {
+    const feed = careEvent('feed-1', 'feed', new Date().toISOString(), { details: { amount_ml: 59.1 } })
+    mounted = mount(LogScreen, {
+      target: document.body,
+      props: { ...logScreenProps([feed]), profile: { ...profile, volume_unit: 'fl_oz' } },
+    })
+    expect(document.querySelector('.recent-section')?.textContent).toContain('2 fl oz')
+    expect(document.querySelector('.recent-section')?.textContent).not.toContain('59.1 ml')
+  })
 })
+
+function weightMeasurement(id: string, measuredOn: string, weightGrams: number): WeightMeasurement {
+  return {
+    id,
+    household_id: 'household-1',
+    child_id: 'child-1',
+    measured_on: measuredOn,
+    weight_grams: weightGrams,
+    created_by: 'parent-1',
+    recorded_at: `${measuredOn}T18:00:00Z`,
+    updated_at: `${measuredOn}T18:00:00Z`,
+    deleted_at: null,
+  }
+}
