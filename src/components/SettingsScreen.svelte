@@ -13,6 +13,9 @@
   export let pendingCount: number
   export let onUpdated: () => Promise<void>
   export let onSignOut: () => Promise<void>
+  export let amountSliderVibrationSupported = false
+  export let amountSliderVibrationEnabled = false
+  export let onAmountSliderVibrationUpdated: (enabled: boolean) => boolean = () => true
 
   let invitedEmail = ''
   let generatedEmail = ''
@@ -28,41 +31,62 @@
   let unit: VolumeUnit = savedUnit
   let volumeMaxMl = savedVolumeMaxMl
   let weightUnit: WeightUnit = savedWeightUnit
+  let savedAmountSliderVibration = amountSliderVibrationEnabled
+  let amountSliderVibration = savedAmountSliderVibration
   let volumeHelpOpen = false
+  let vibrationHelpOpen = false
   let busy = false
   let emailBusy = false
   let preferenceError = ''
   let inviteError = ''
 
   $: canInvite = context.members.length < 2
-  $: preferencesChanged =
+  $: profilePreferencesChanged =
     showPump !== savedShowPump ||
     unit !== savedUnit ||
     Number(volumeMaxMl) !== savedVolumeMaxMl ||
     weightUnit !== savedWeightUnit
+  $: vibrationPreferenceChanged = amountSliderVibrationSupported && amountSliderVibration !== savedAmountSliderVibration
+  $: preferencesChanged = profilePreferencesChanged || vibrationPreferenceChanged
 
   async function savePreferences() {
     if (!context.profile || !preferencesChanged || busy) return
     preferenceError = ''
     busy = true
-    const { error: updateError } = await supabase
-      .from('parent_profiles')
-      .update({
-        show_pump_action: showPump,
-        volume_unit: unit,
-        volume_slider_max_ml: Number(volumeMaxMl),
-        weight_unit: weightUnit,
-      })
-      .eq('user_id', context.profile.user_id)
-    busy = false
-    if (updateError) preferenceError = updateError.message
-    else {
+    const shouldUpdateProfile = profilePreferencesChanged
+    const shouldUpdateVibration = vibrationPreferenceChanged
+    if (shouldUpdateProfile) {
+      const { error: updateError } = await supabase
+        .from('parent_profiles')
+        .update({
+          show_pump_action: showPump,
+          volume_unit: unit,
+          volume_slider_max_ml: Number(volumeMaxMl),
+          weight_unit: weightUnit,
+        })
+        .eq('user_id', context.profile.user_id)
+      if (updateError) {
+        busy = false
+        preferenceError = updateError.message
+        return
+      }
       savedShowPump = showPump
       savedUnit = unit
       savedVolumeMaxMl = Number(volumeMaxMl)
       savedWeightUnit = weightUnit
-      await onUpdated()
     }
+
+    if (shouldUpdateVibration) {
+      if (!onAmountSliderVibrationUpdated(amountSliderVibration)) {
+        busy = false
+        preferenceError = 'Slider vibration could not be saved on this device.'
+        return
+      }
+      savedAmountSliderVibration = amountSliderVibration
+    }
+
+    busy = false
+    if (shouldUpdateProfile) await onUpdated()
   }
 
   async function createInvite() {
@@ -151,6 +175,23 @@
           <span>{formatVolume(VOLUME_MAX_SETTING_CONFIG.max, unit)}</span>
         </div>
       </div>
+      {#if amountSliderVibrationSupported}
+        <div class="setting-toggle-with-help">
+          <label class="check-row"><input bind:checked={amountSliderVibration} type="checkbox" /> Amount slider vibration</label>
+          <span class="help-tooltip" data-open={vibrationHelpOpen}>
+            <button
+              class="help-tooltip-trigger"
+              type="button"
+              aria-label="About amount slider vibration"
+              aria-expanded={vibrationHelpOpen}
+              aria-describedby="amount-slider-vibration-help"
+              on:click={() => (vibrationHelpOpen = !vibrationHelpOpen)}
+              on:blur={() => (vibrationHelpOpen = false)}
+            ><span aria-hidden="true">i</span></button>
+            <span id="amount-slider-vibration-help" class="help-tooltip-content" role="tooltip">Light vibration at amount milestones on supported devices.</span>
+          </span>
+        </div>
+      {/if}
       <fieldset class="unit-choice">
         <legend>Weight unit</legend>
         <div class="unit-segmented">

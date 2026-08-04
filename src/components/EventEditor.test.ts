@@ -5,11 +5,14 @@ import type { CareEvent, EventDetails, EventType } from '../lib/types'
 
 let mounted: ReturnType<typeof mount> | undefined
 type SaveHandler = (event: CareEvent, occurredAt: string, details: EventDetails, endedAt?: string | null) => Promise<void>
+const originalVibrate = Object.getOwnPropertyDescriptor(navigator, 'vibrate')
 
 afterEach(async () => {
   if (mounted) await unmount(mounted)
   mounted = undefined
   document.body.innerHTML = ''
+  if (originalVibrate) Object.defineProperty(navigator, 'vibrate', originalVibrate)
+  else Reflect.deleteProperty(navigator, 'vibrate')
 })
 
 function careEvent(eventType: EventType, details: EventDetails): CareEvent {
@@ -30,13 +33,20 @@ function careEvent(eventType: EventType, details: EventDetails): CareEvent {
   }
 }
 
-function renderEditor(event: CareEvent, onSave: SaveHandler = async () => undefined, defaultUnit: 'ml' | 'fl_oz' = 'ml', volumeMaxMl = 350) {
+function renderEditor(
+  event: CareEvent,
+  onSave: SaveHandler = async () => undefined,
+  defaultUnit: 'ml' | 'fl_oz' = 'ml',
+  volumeMaxMl = 350,
+  amountSliderVibrationEnabled = false,
+) {
   mounted = mount(EventEditor, {
     target: document.body,
     props: {
       event,
       defaultUnit,
       volumeMaxMl,
+      amountSliderVibrationEnabled,
       onClose: () => undefined,
       onSave,
       onRemove: async () => undefined,
@@ -94,6 +104,20 @@ describe('event amount sliders', () => {
     renderEditor(careEvent('feed', { amount_ml: 120, amount: 120, unit: 'ml' }), undefined, 'ml', 90)
     expect(document.querySelector<HTMLInputElement>('#feed-amount')?.max).toBe('120')
     expect(document.body.textContent).toContain('This entry is above your current slider maximum.')
+  })
+
+  it('does not vibrate for programmatic slider input events', async () => {
+    const vibrate = vi.fn(() => true)
+    Object.defineProperty(navigator, 'vibrate', { configurable: true, value: vibrate })
+    renderEditor(careEvent('feed', {}), undefined, 'ml', 350, true)
+
+    const slider = document.querySelector<HTMLInputElement>('#feed-amount')
+    if (!slider) throw new Error('Feed amount slider was not rendered')
+    slider.value = '10'
+    slider.dispatchEvent(new Event('input', { bubbles: true }))
+    await tick()
+
+    expect(vibrate).not.toHaveBeenCalled()
   })
 })
 

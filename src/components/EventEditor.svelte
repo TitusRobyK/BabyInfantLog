@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onDestroy, onMount } from 'svelte'
   import { POOP_COLORS } from '../lib/actionMeta'
+  import { createSliderHaptics } from '../lib/sliderHaptics'
   import type { CareEvent, EventDetails, VolumeUnit } from '../lib/types'
   import {
     canonicalVolumeMl,
@@ -13,6 +15,7 @@
   export let event: CareEvent
   export let defaultUnit: VolumeUnit
   export let volumeMaxMl = DEFAULT_VOLUME_MAX_ML
+  export let amountSliderVibrationEnabled = false
   export let onClose: () => void
   export let onSave: (event: CareEvent, occurredAt: string, details: EventDetails, endedAt?: string | null) => Promise<void>
   export let onRemove: (event: CareEvent) => Promise<void>
@@ -28,6 +31,11 @@
   const storedAmountMl = canonicalVolumeMl(details)
   let amount = storedAmountMl === null ? 0 : volumeToDisplay(storedAmountMl, defaultUnit)
   let amountChanged = false
+  const usesAmountSlider = event.event_type === 'feed' || event.event_type === 'pump'
+  const amountHaptics = createSliderHaptics({
+    initialValue: Number(amount),
+    isEnabled: () => amountSliderVibrationEnabled,
+  })
   $: amountRange = volumeEntrySliderConfig(volumeMaxMl, defaultUnit)
   $: amountMax = Math.max(amountRange.max, amount)
   $: abovePreference = storedAmountMl !== null && storedAmountMl > volumeMaxMl
@@ -39,6 +47,31 @@
   $: amountLabel = amount > 0
     ? formatVolume(volumeToMilliliters(Number(amount), defaultUnit), defaultUnit)
     : 'Not recorded'
+
+  onMount(() => {
+    if (!usesAmountSlider) return
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') amountHaptics.reset(Number(amount))
+      else amountHaptics.cancel(Number(amount))
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  })
+
+  onDestroy(() => {
+    if (usesAmountSlider) amountHaptics.cancel(Number(amount))
+  })
+
+  function handleAmountInput(inputEvent: Event) {
+    amountChanged = true
+    const slider = inputEvent.currentTarget as HTMLInputElement
+    amountHaptics.handleInput({
+      value: Number(slider.value),
+      unit: defaultUnit,
+      max: Number(slider.max),
+      userTriggered: inputEvent.isTrusted,
+    })
+  }
 
   async function save() {
     busy = true
@@ -170,14 +203,14 @@
         <label>Milk type <select bind:value={details.feed_type}><option value={undefined}>Not recorded</option><option value="breast_milk">Breast milk</option><option value="formula">Formula</option><option value="mixed">Mixed</option></select></label>
         <div class="amount-field">
           <div class="amount-heading"><label for="feed-amount">Amount consumed <span class="optional">Optional</span></label><output for="feed-amount">{amountLabel}</output></div>
-          <input id="feed-amount" class="amount-slider" bind:value={amount} on:input={() => (amountChanged = true)} type="range" min="0" max={amountMax} step={amountRange.step} aria-valuetext={amountLabel} />
+          <input id="feed-amount" class="amount-slider" bind:value={amount} on:input={handleAmountInput} type="range" min="0" max={amountMax} step={amountRange.step} aria-valuetext={amountLabel} />
           <div class="amount-scale" aria-hidden="true"><span>Not recorded</span><span>{formatVolume(volumeToMilliliters(amountMax, defaultUnit), defaultUnit)}</span></div>
           {#if abovePreference}<p class="hint">This entry is above your current slider maximum.</p>{/if}
         </div>
       {:else if event.event_type === 'pump'}
         <div class="amount-field">
           <div class="amount-heading"><label for="pump-amount">Amount pumped <span class="optional">Optional</span></label><output for="pump-amount">{amountLabel}</output></div>
-          <input id="pump-amount" class="amount-slider" bind:value={amount} on:input={() => (amountChanged = true)} type="range" min="0" max={amountMax} step={amountRange.step} aria-valuetext={amountLabel} />
+          <input id="pump-amount" class="amount-slider" bind:value={amount} on:input={handleAmountInput} type="range" min="0" max={amountMax} step={amountRange.step} aria-valuetext={amountLabel} />
           <div class="amount-scale" aria-hidden="true"><span>Not recorded</span><span>{formatVolume(volumeToMilliliters(amountMax, defaultUnit), defaultUnit)}</span></div>
           {#if abovePreference}<p class="hint">This entry is above your current slider maximum.</p>{/if}
         </div>

@@ -36,6 +36,11 @@
     weightMeasurementFromPending,
   } from './lib/measurements'
   import { clearPendingForUser, pendingForUser, removePending } from './lib/offlineQueue'
+  import {
+    isAmountSliderVibrationSupported,
+    readAmountSliderVibrationPreference,
+    saveAmountSliderVibrationPreference,
+  } from './lib/sliderVibrationPreference'
   import { isConfigured, supabase } from './lib/supabase'
   import { localDateKey } from './lib/time'
   import type { AppContext, CareEvent, EventDetails, EventType, SleepInterruption, WeightMeasurement } from './lib/types'
@@ -59,6 +64,7 @@
   let editingEvent: CareEvent | null = null
   let editingWeight: WeightMeasurement | null = null
   let recordingWeight = false
+  let amountSliderVibrationEnabled = false
   let resetPasswordMode = new URLSearchParams(window.location.search).get('reset') === '1'
   let toast: Toast | null = null
   let toastTimer: ReturnType<typeof setTimeout> | null = null
@@ -66,6 +72,7 @@
   const lastDiscreteTapAt = new Map<EventType, number>()
   const savingLogIds = new Set<string>()
   const cancelledLogIds = new Set<string>()
+  const amountSliderVibrationSupported = isAmountSliderVibrationSupported()
 
   onMount(() => {
     void initialize()
@@ -116,9 +123,12 @@
       events = []
       sleepInterruptions = []
       weightMeasurements = []
+      amountSliderVibrationEnabled = false
       loading = false
       return
     }
+
+    amountSliderVibrationEnabled = amountSliderVibrationSupported && readAmountSliderVibrationPreference(user.id)
 
     try {
       context = await loadContext(user)
@@ -449,6 +459,13 @@
     route = 'log'
   }
 
+  function updateAmountSliderVibration(enabled: boolean): boolean {
+    if (!user || !amountSliderVibrationSupported) return false
+    const saved = saveAmountSliderVibrationPreference(user.id, enabled)
+    if (saved) amountSliderVibrationEnabled = enabled
+    return saved
+  }
+
   function showToast(message: string, actionLabel?: string, action?: () => void) {
     toast = { message, actionLabel, action }
     if (toastTimer) clearTimeout(toastTimer)
@@ -538,7 +555,15 @@
         onSyncPending={syncPending}
       />
     {:else}
-      <SettingsScreen {context} {pendingCount} onUpdated={loadApplication} onSignOut={signOut} />
+      <SettingsScreen
+        {context}
+        {pendingCount}
+        {amountSliderVibrationSupported}
+        {amountSliderVibrationEnabled}
+        onAmountSliderVibrationUpdated={updateAmountSliderVibration}
+        onUpdated={loadApplication}
+        onSignOut={signOut}
+      />
     {/if}
 
     <nav class="bottom-nav" aria-label="Primary">
@@ -559,6 +584,7 @@
     event={editingEvent}
     defaultUnit={context.profile.volume_unit}
     volumeMaxMl={context.profile.volume_slider_max_ml}
+    {amountSliderVibrationEnabled}
     onClose={() => (editingEvent = null)}
     onSave={saveEditedEvent}
     onRemove={removeEditedEvent}

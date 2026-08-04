@@ -226,6 +226,9 @@ select { -webkit-appearance: none; appearance: none; padding-right: 3rem; backgr
 .help-tooltip:hover .help-tooltip-content,
 .help-tooltip[data-open='true'] .help-tooltip-content,
 .help-tooltip-trigger:focus-visible + .help-tooltip-content { opacity: 1; transform: translate(-50%, 0); visibility: visible; }
+.setting-toggle-with-help { display: flex; width: min(100%, 360px); align-items: center; gap: 0.2rem; }
+.setting-toggle-with-help .help-tooltip { align-items: center; }
+.setting-toggle-with-help .help-tooltip-trigger { place-items: center; }
 .unit-choice { width: min(100%, 260px); gap: 0.35rem; padding: 0; border: 0; }
 .unit-choice legend { margin-bottom: 0.5rem; padding: 0; }
 .unit-segmented { display: grid; width: 100%; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); border-radius: 3px; overflow: hidden; }
