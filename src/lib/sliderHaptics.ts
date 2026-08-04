@@ -1,6 +1,6 @@
 import type { VolumeUnit } from './types'
 
-:wqexport const SLIDER_HAPTIC_ML_INTERVAL = 10
+export const SLIDER_HAPTIC_ML_INTERVAL = 10
 export const SLIDER_HAPTIC_FL_OZ_INTERVAL = 0.5
 export const SLIDER_HAPTIC_REGULAR_MS = 8
 export const SLIDER_HAPTIC_BOUNDARY_MS = 15
