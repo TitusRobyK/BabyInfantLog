@@ -109,7 +109,7 @@ The bottom navigation remains fixed above the device safe area. Labels are alway
 
 All dropdown controls use the same clearly sized downward chevron with comfortable spacing from the right edge. Volume and Weight units are compact two-option segmented radio controls because both choices can remain visible without opening a menu. Settings keeps these preferences per parent: Pump visibility, the global ml/fl oz choice, the common Feed/Pump slider maximum, and the lb+oz/kg+g Weight choice. Saving a preference changes presentation and future entry controls; it never rewrites existing records.
 
-On a supported Android Chrome client, Settings also shows a device-local switch labelled **Amount slider vibration**, with the helper **Light vibration at amount milestones on supported devices.** It defaults to Off and is stored only in local browser/PWA storage. It is not part of the parent profile, does not synchronize to the other parent or another device, and requires no database field or migration. Hide the control on unsupported clients, including iOS Safari and iOS Home Screen web apps. This preference applies only to the Feed and Pump amount sliders, not the shared maximum slider or any other control.
+On a supported Android Chrome client, Settings also shows a device-local switch labelled **Amount slider vibration**, with the helper **Light vibration with each amount step on supported devices.** It defaults to Off and is stored only in local browser/PWA storage. It is not part of the parent profile, does not synchronize to the other parent or another device, and requires no database field or migration. Hide the control on unsupported clients, including iOS Safari and iOS Home Screen web apps. This preference applies only to the Feed and Pump amount sliders, not the shared maximum slider or any other control.
 
 ## 6. Primary screen specification
 
@@ -265,12 +265,12 @@ Optional post-log details:
 
 The optional amount uses a touch-friendly slider and live value label. Feed and Pump share one per-parent maximum configured in Settings: **30–600 ml**, adjusted in 10 ml increments, with **350 ml** as the default. A parent may set it to 90 ml now and raise it later as needs change. The action slider uses one-milliliter steps in ml mode or 0.1 fl oz steps in fl oz mode. The zero position is labelled **Not recorded**.
 
-When **Amount slider vibration** is enabled on a supported Android Chrome client, the Feed and Pump amount sliders add restrained tactile landmarks without changing their steps or values:
+When **Amount slider vibration** is enabled on a supported Android Chrome client, the Feed and Pump amount sliders add restrained tactile step feedback without changing their steps or values:
 
-- Reaching or crossing each 10 ml landmark in ml mode, or each 0.5 fl oz landmark in fl oz mode, requests one 8 ms vibration.
-- Leaving or returning to **Not recorded** at zero, or reaching the slider's actual upper endpoint, requests one slightly stronger 15 ms vibration. A zero/maximum boundary takes precedence over a regular landmark reached in the same update. For an older amount above the saved preference, the temporarily extended endpoint is the upper boundary.
+- Each selectable movement of 1 ml in ml mode or 0.1 fl oz in fl oz mode requests one 8 ms vibration, in either direction.
+- Leaving or returning to **Not recorded** at zero, or reaching the slider's actual upper endpoint, requests one slightly stronger 15 ms vibration. A zero/maximum boundary takes precedence over a regular step reached in the same update. For an older amount above the saved preference, the temporarily extended endpoint is the upper boundary.
 - Do not vibrate merely because the sheet opens at its initial value.
-- Throttle requests to at most one every 80 ms. If a fast drag crosses several landmarks inside that window, emit at most one pulse rather than queueing pulses that continue after the thumb stops.
+- Throttle requests to at most one every 80 ms. If a fast drag crosses several steps inside that window, emit at most one pulse rather than queueing pulses that continue after the thumb stops.
 - Treat vibration as best-effort progressive enhancement. An unavailable, rejected, or system-suppressed vibration remains silent and never changes the amount, blocks saving, displays an error, or triggers a retry.
 
 The parent's volume-unit preference applies everywhere on that parent's device-facing experience: Feed and Pump entry, Recent, History, Insights, Latest brief, and PDF reports. Values are stored canonically in milliliters so changing the preference only changes presentation and never rewrites care records. An older saved amount above a newly lowered maximum remains editable by temporarily extending that entry's slider.
@@ -350,7 +350,7 @@ Rules:
 
 - Amount is never required to end and save a Pump session.
 - End time must remain later than start time.
-- Total amount uses the same slider, per-parent maximum, and optional tactile landmarks as Feed: 30–600 ml with a 350 ml default. The parent may, for example, use 90 ml now and increase it later.
+- Total amount uses the same slider, per-parent maximum, and optional tactile step feedback as Feed: 30–600 ml with a 350 ml default. The parent may, for example, use 90 ml now and increase it later.
 - The Pump detail sheet uses the parent's global volume unit and does not repeat a local unit switch.
 - The zero position is labelled **Not recorded**.
 - Store a canonical milliliter value for consistent aggregation and later unit switching.
@@ -1172,7 +1172,7 @@ Initial support target:
 - Keyboard focus order follows visual order.
 - Live regions announce “Feed logged,” sync failures, and successful undo without stealing focus.
 - The visible amount label, native slider value, **Not recorded** label, configured maximum, and save confirmation remain the primary Feed/Pump feedback. Vibration never communicates a value, boundary, or successful save by itself.
-- Do not add a screen-reader announcement for each tactile landmark; assistive technology continues to receive the slider's current value through its normal range semantics.
+- Do not add a screen-reader announcement for each tactile step; assistive technology continues to receive the slider's current value through its normal range semantics.
 - Graphs include text summaries and accessible tabular/list equivalents.
 - The active Sleep button exposes pressed/state text such as “Sleep active, started 1:12 PM.”
 - The active Pump button exposes state text such as “Pump active, started 1:12 PM.”
@@ -1237,7 +1237,7 @@ Do not record CTA taps in a separate analytics platform; the actual authorized e
 - Feed and Pump use the same per-parent maximum. Settings can set it from 30–600 ml in 10 ml increments, including 90 ml, with 350 ml as the default.
 - The selected volume unit is global for that parent across Feed/Pump entry, Log, History, Insights, Latest brief, and PDF; Pump does not show a second unit control.
 - On supported Android Chrome clients, **Amount slider vibration** is shown only when supported, defaults to Off, remains local to the browser/PWA installation, and has no database or cross-device effect.
-- When enabled, both amount sliders request 8 ms pulses at crossed 10 ml or 0.5 fl oz landmarks, 15 ms pulses when leaving or returning to zero or reaching the slider's actual endpoint, and no more than one pulse every 80 ms. Disabled, unsupported, and system-suppressed vibration is silent and never replaces visible value or save feedback.
+- When enabled, both amount sliders request 8 ms pulses for each selectable 1 ml or 0.1 fl oz movement, 15 ms pulses when leaving or returning to zero or reaching the slider's actual endpoint, and no more than one pulse every 80 ms. A rapid drag may cross multiple steps inside the throttle window without queueing delayed pulses. Disabled, unsupported, and system-suppressed vibration is silent and never replaces visible value or save feedback.
 - Pump history and insights are visible to both parents, and a missing amount is never treated as zero.
 
 ### 23.4 Weight
@@ -1316,7 +1316,7 @@ The optional `supabase/scripts/seed-30-day-newborn-ui-data.sql` fixture creates 
 - End-to-end tests for log, undo, edit, offline recovery, History, and Insights
 - Component tests for optional Poop segmented controls, accessible color-swatch names/selection, clear behavior, and attention-color guidance
 - Unit and component tests for global volume conversion, shared maximum handling, values above a lowered maximum, and consistent ml/fl oz rendering
-- Unit and component tests for the device-local vibration preference, Android capability gating, default-Off behavior, Feed/Pump-only scope, 10 ml and 0.5 fl oz landmark crossing, 8 ms versus 15 ms boundary pulses, initial-render silence, zero/maximum precedence, and the 80 ms throttle during fast drags
+- Unit and component tests for the device-local vibration preference, Android capability gating, default-Off behavior, Feed/Pump-only scope, forward and reverse 1 ml and 0.1 fl oz step movement, 8 ms versus 15 ms boundary pulses, initial-render silence, zero/maximum precedence, and the 80 ms throttle during fast drags
 - Unit, component, integration, RLS, Realtime, offline-queue, Insights, and PDF tests for dated Weight measurements and both display-unit choices
 - End-to-end tests for Hiccups one-tap logging, Undo, shared-device synchronization, History, and counts
 - Insights tests for All Actions small multiples, return-from-details focus and filter preservation, compact and expanded mobile cards, single-expanded-card behavior, one-line versus wrapped-headline graph alignment at two-column breakpoints, natural-height single-column cards, action-color labels, period navigation, current-period Next disabling, live-brief filter independence, open-session clipping, empty-state copy, and household-timezone boundaries
@@ -1331,7 +1331,7 @@ Test on the actual devices used by both parents, not only emulators:
 - Wife's iPhone from Add to Home Screen
 - Husband's Android phone in Chrome browser mode
 - Husband's Android phone as an installed PWA
-- In both Android modes, test the Feed and Pump sliders with the preference Off and On: drag slowly across regular landmarks, leave and return to zero, reach the actual endpoint, and drag quickly enough to verify the 80 ms throttle without delayed pulses
+- In both Android modes, test the Feed and Pump sliders with the preference Off and On: move slowly through individual steps in both directions, leave and return to zero, reach the actual endpoint, and drag quickly enough to verify the 80 ms throttle without delayed pulses
 - In both iPhone modes, confirm the preference is absent and both sliders remain fully usable without vibration, errors, or altered save behavior
 - On Android with system vibration suppressed, confirm the enabled preference falls back silently and the amount and save flow remain correct
 - Both devices open simultaneously on Wi-Fi

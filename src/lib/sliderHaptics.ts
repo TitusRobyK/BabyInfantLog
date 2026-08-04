@@ -1,7 +1,7 @@
 import type { VolumeUnit } from './types'
 
-export const SLIDER_HAPTIC_ML_INTERVAL = 10
-export const SLIDER_HAPTIC_FL_OZ_INTERVAL = 0.5
+export const SLIDER_HAPTIC_ML_INTERVAL = 1
+export const SLIDER_HAPTIC_FL_OZ_INTERVAL = 0.1
 export const SLIDER_HAPTIC_REGULAR_MS = 8
 export const SLIDER_HAPTIC_BOUNDARY_MS = 15
 export const SLIDER_HAPTIC_THROTTLE_MS = 80
@@ -30,9 +30,9 @@ export interface SliderHapticsController {
 }
 
 /**
- * Classifies one user-driven slider transition. A jump across several milestones
+ * Classifies one user-driven slider transition. A jump across several steps
  * intentionally produces one result, and a boundary always wins over a regular
- * milestone.
+ * step.
  */
 export function sliderHapticForTransition(
   previousValue: number,
@@ -48,7 +48,7 @@ export function sliderHapticForTransition(
   if (leavesZero || reachesZero || reachesTop) return 'boundary'
 
   const interval = unit === 'fl_oz' ? SLIDER_HAPTIC_FL_OZ_INTERVAL : SLIDER_HAPTIC_ML_INTERVAL
-  return milestoneBucket(previousValue, interval) === milestoneBucket(value, interval) ? null : 'regular'
+  return Math.abs(value - previousValue) + interval * 1e-9 >= interval ? 'regular' : null
 }
 
 /**
@@ -92,10 +92,6 @@ export function createSliderHaptics(options: SliderHapticsOptions): SliderHaptic
   }
 
   return { handleInput, reset, cancel }
-}
-
-function milestoneBucket(value: number, interval: number): number {
-  return Math.floor((value + Number.EPSILON) / interval)
 }
 
 function finiteValue(value: number | undefined): number | undefined {

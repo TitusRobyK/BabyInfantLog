@@ -188,7 +188,7 @@
               on:click={() => (vibrationHelpOpen = !vibrationHelpOpen)}
               on:blur={() => (vibrationHelpOpen = false)}
             ><span aria-hidden="true">i</span></button>
-            <span id="amount-slider-vibration-help" class="help-tooltip-content" role="tooltip">Light vibration at amount milestones on supported devices.</span>
+            <span id="amount-slider-vibration-help" class="help-tooltip-content" role="tooltip">Light vibration with each amount step on supported devices.</span>
           </span>
         </div>
       {/if}

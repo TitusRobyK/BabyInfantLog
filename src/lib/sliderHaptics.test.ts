@@ -12,16 +12,18 @@ describe('slider haptic transitions', () => {
     expect(sliderHapticForTransition(1, 0, 'ml', 350)).toBe('boundary')
   })
 
-  it('uses one regular result when crossing one or several unit milestones', () => {
+  it('uses one regular result for every selectable step in either direction', () => {
     expect(sliderHapticForTransition(9, 10, 'ml', 350)).toBe('regular')
+    expect(sliderHapticForTransition(10, 9, 'ml', 350)).toBe('regular')
     expect(sliderHapticForTransition(11, 49, 'ml', 350)).toBe('regular')
     expect(sliderHapticForTransition(0.4, 0.5, 'fl_oz', 11.8)).toBe('regular')
+    expect(sliderHapticForTransition(0.5, 0.4, 'fl_oz', 11.8)).toBe('regular')
     expect(sliderHapticForTransition(0.6, 2.4, 'fl_oz', 11.8)).toBe('regular')
   })
 
-  it('does not repeat feedback while the value stays in one milestone bucket', () => {
-    expect(sliderHapticForTransition(11, 19, 'ml', 350)).toBeNull()
-    expect(sliderHapticForTransition(0.6, 0.9, 'fl_oz', 11.8)).toBeNull()
+  it('ignores unchanged values and movement smaller than one selectable step', () => {
+    expect(sliderHapticForTransition(11, 11.9, 'ml', 350)).toBeNull()
+    expect(sliderHapticForTransition(0.61, 0.69, 'fl_oz', 11.8)).toBeNull()
     expect(sliderHapticForTransition(10, 10, 'ml', 350)).toBeNull()
   })
 
